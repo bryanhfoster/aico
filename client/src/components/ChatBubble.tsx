@@ -1,5 +1,4 @@
-import type { ReactNode } from 'react'
-import { useMemo } from 'react'
+import { ReactNode, useMemo } from 'react'
 import { FcInfo, FcCustomerSupport, FcBusinessman } from 'react-icons/fc'
 
 export type ChatRole = 'system' | 'agent' | 'user'
@@ -41,7 +40,7 @@ export default function ChatBubble({ role, children }: ChatBubbleProps) {
     <article
       aria-label={`${role} message`}
       style={{
-        display: 'inline-flex',
+        display: 'flex',
         gap: 8,
         alignSelf,
         maxWidth: '85%',
@@ -59,7 +58,6 @@ export default function ChatBubble({ role, children }: ChatBubbleProps) {
           borderRadius: 12,
           padding: '10px 12px',
           whiteSpace: 'pre-wrap',
-          display: 'inline-block',
         }}
       >
         {children}

@@ -1,5 +1,4 @@
-import type { ReactNode } from 'react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
 export interface DraggableXProps {
   children: ReactNode
@@ -164,9 +163,8 @@ export default function DraggableX({ children, initialX = 0, initialY = 0, disab
     transform: `translate(${Math.round(offsetX)}px, ${Math.round(offsetY)}px)`,
     cursor: disabled ? 'default' : dragging ? 'grabbing' : 'grab',
     touchAction: 'none',
-    display: 'inline-flex',
-    width: 'fit-content',
-    maxWidth: '100%',
+    alignSelf: 'stretch',
+    display: 'flex',
   }), [offsetX, offsetY, dragging, disabled])
 
   return (
