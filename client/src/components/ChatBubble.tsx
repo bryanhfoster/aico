@@ -1,4 +1,5 @@
-import { ReactNode, useMemo } from 'react'
+import type { ReactNode } from 'react'
+import { useMemo } from 'react'
 import { FcInfo, FcCustomerSupport, FcBusinessman } from 'react-icons/fc'
 
 export type ChatRole = 'system' | 'agent' | 'user'
