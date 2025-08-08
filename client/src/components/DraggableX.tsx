@@ -163,8 +163,9 @@ export default function DraggableX({ children, initialX = 0, initialY = 0, disab
     transform: `translate(${Math.round(offsetX)}px, ${Math.round(offsetY)}px)`,
     cursor: disabled ? 'default' : dragging ? 'grabbing' : 'grab',
     touchAction: 'none',
-    alignSelf: 'stretch',
-    display: 'flex',
+    display: 'inline-flex',
+    width: 'fit-content',
+    maxWidth: '100%',
   }), [offsetX, offsetY, dragging, disabled])
 
   return (

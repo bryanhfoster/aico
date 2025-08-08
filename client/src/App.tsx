@@ -104,7 +104,8 @@ function App() {
             gap: 8,
             paddingBottom: 72,
             flex: 1,
-            overflow: 'auto',
+            overflowY: 'auto',
+            overflowX: 'visible',
           }}
         >
           {messages.map((m) => {
