@@ -1,7 +1,7 @@
 import { HumeClient } from 'hume';
 
 const client = new HumeClient({
-  apiKey: 'rSIbRK4ohxa8pb3UzseqAT9WlkRiApO36FTpWarDDcnviDD9',
+  apiKey: import.meta.env.VITE_HUME_API_KEY,
 });
 
 export const sendMessageToHume = async (messages: Array<{ role: 'user' | 'assistant' | 'system', content: string }>) => {
