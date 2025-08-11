@@ -2,164 +2,635 @@ import './App.css'
 import ChatInput from './components/ChatInput'
 import ChatBubble, { type ChatRole } from './components/ChatBubble'
 import DraggableX from './components/DraggableX'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
+import { motion, AnimatePresence } from 'framer-motion'
+import { FiPlus, FiX, FiMaximize2, FiMinimize2 } from 'react-icons/fi'
+import { sendMessageToHume } from './Services/humeService';
+
+type Message = { id: string; role: ChatRole; text: string; timestamp: Date };
+type Conversation = {
+  id: string;
+  title: string;
+  messages: Message[];
+  createdAt: Date;
+  updatedAt: Date;
+};
 
 function App() {
-  type Msg = { id: string; role: ChatRole; text: string }
-  const [messages, setMessages] = useState<Msg[]>([
-    { id: 'm1', role: 'system', text: 'Welcome to aico. This is a system message.' },
-    { id: 'm2', role: 'agent', text: 'Hi! I’m your assistant. Ask me anything.' },
-    { id: 'm3', role: 'user', text: 'Cool. Let’s get started.' },
-  ])
+  const [conversations, setConversations] = useState<Conversation[]>(() => {
+    const saved = localStorage.getItem('conversations');
+    return saved ? JSON.parse(saved) : [
+      {
+        id: 'conv-1',
+        title: 'New Conversation',
+        messages: [
+          { 
+            id: 'm1', 
+            role: 'system', 
+            text: 'Welcome to aico. This is a system message.', 
+            timestamp: new Date(Date.now() - 3600000) 
+          },
+          { 
+            id: 'm2', 
+            role: 'agent', 
+            text: 'Hi! I’m your assistant. Ask me anything.', 
+            timestamp: new Date(Date.now() - 1800000) 
+          }
+        ],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      }
+    ];
+  });
+  
+  const [currentConversationId, setCurrentConversationId] = useState<string>(conversations[0]?.id || '');
+  const messages = useMemo(() => {
+    const conv = conversations.find(c => c.id === currentConversationId);
+    return conv ? conv.messages : [];
+  }, [conversations, currentConversationId]);
 
-  // Track which messages are detached (dragged out of center area) with their positions
-  type Detached = { id: string; x: number; y: number }
-  const [detached, setDetached] = useState<Record<string, Detached>>({})
-  const [resetSignal, setResetSignal] = useState<number>(0)
-
-  const handleSend = useCallback((text: string) => {
-    const idUser = crypto.randomUUID()
-    const idEcho = crypto.randomUUID()
-    setMessages((prev) => [
-      ...prev,
-      { id: idUser, role: 'user', text },
-      { id: idEcho, role: 'agent', text: `Echo: ${text}` },
-    ])
-  }, [])
-
-  // Scroll container to bottom when messages change
-  const streamRef = useRef<HTMLDivElement | null>(null)
+  // Save conversations to localStorage whenever they change
   useEffect(() => {
-    const el = streamRef.current
-    if (!el) return
-    el.scrollTop = el.scrollHeight
-  }, [messages.length])
+    localStorage.setItem('conversations', JSON.stringify(conversations));
+  }, [conversations]);
+
+  const handleSend = useCallback(async (text: string) => {
+    if (!text.trim() || !currentConversationId) return;
+    
+    const conversation = conversations.find(c => c.id === currentConversationId);
+    if (!conversation) return;
+    
+    const idUser = crypto.randomUUID();
+    const now = new Date();
+    
+    // Add user message
+    const userMsg: Message = { 
+      id: idUser, 
+      role: 'user', 
+      text: text,
+      timestamp: now
+    };
+    
+    // Update conversation with new message
+    const updatedConversation = {
+      ...conversation,
+      messages: [...conversation.messages, userMsg],
+      updatedAt: now
+    };
+    
+    setConversations(prev => 
+      prev.map(c => c.id === currentConversationId ? updatedConversation : c)
+    );
+    
+    try {
+      // Prepare conversation history for Hume
+      const conversationHistory = updatedConversation.messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({
+          role: m.role === 'agent' ? 'assistant' : m.role,
+          content: m.text
+        }));
+      
+      // Get response from Hume
+      const response = await sendMessageToHume(conversationHistory);
+      
+      const agentMsg: Message = { 
+        id: crypto.randomUUID(), 
+        role: 'agent',
+        text: String(response),
+        timestamp: new Date()
+      };
+      
+      // Update conversation with AI response
+      setConversations(prev => 
+        prev.map(c => c.id === currentConversationId 
+          ? { 
+              ...c, 
+              messages: [...c.messages, agentMsg],
+              title: c.title === 'New Conversation' 
+                ? text.substring(0, 30) + (text.length > 30 ? '...' : '')
+                : c.title,
+              updatedAt: new Date()
+            } 
+          : c
+        )
+      );
+    } catch (error) {
+      console.error('Error getting response from Hume:', error);
+      const errorMsg: Message = { 
+        id: crypto.randomUUID(), 
+        role: 'system', 
+        text: 'Sorry, there was an error getting a response. Please try again.',
+        timestamp: new Date()
+      };
+      
+      setConversations(prev => 
+        prev.map(c => c.id === currentConversationId 
+          ? { ...c, messages: [...c.messages, errorMsg] } 
+          : c
+        )
+      );
+    }
+  }, [currentConversationId, conversations]);
+  
+  const createNewConversation = useCallback(() => {
+    const newConversation: Conversation = {
+      id: `conv-${Date.now()}`,
+      title: 'New Conversation',
+      messages: [
+        { 
+          id: 'm1', 
+          role: 'system', 
+          text: 'Welcome to a new conversation.', 
+          timestamp: new Date() 
+        }
+      ],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    setConversations(prev => [newConversation, ...prev]);
+    setCurrentConversationId(newConversation.id);
+  }, []);
+  
+  // const deleteConversation = useCallback((conversationId: string) => {
+  //   setConversations(prev => {
+  //     const updated = prev.filter(c => c.id !== conversationId);
+  //     if (conversationId === currentConversationId && updated.length > 0) {
+  //       setCurrentConversationId(updated[0].id);
+  //     } else if (updated.length === 0) {
+  //       createNewConversation();
+  //     }
+  //     return updated.length > 0 ? updated : [];
+  //   });
+  // }, [currentConversationId, createNewConversation]);
+
+  const [detached, setDetached] = useState<Record<string, { id: string; x: number; y: number }>>({})
+  const [resetSignal, setResetSignal] = useState<number>(0)
+  const [isMinimized, setIsMinimized] = useState<boolean>(false)
+  const [showSidebar, setShowSidebar] = useState<boolean>(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+
+  const toggleMinimize = () => {
+    setIsMinimized(!isMinimized)
+  }
+
+  const containerVariants = {
+    minimized: {
+      y: 'calc(100% - 60px)',
+      height: '60px',
+      transition: { type: 'spring' as const, stiffness: 300, damping: 30 }
+    },
+    expanded: {
+      y: 0,
+      height: '100vh',
+      transition: { type: 'spring' as const, stiffness: 300, damping: 30 }
+    }
+  };
+
+  const contentVariants = {
+    hidden: { opacity: 0 },
+    visible: { 
+      opacity: 1,
+      transition: { 
+        when: "beforeChildren",
+        staggerChildren: 0.1
+      }
+    }
+  };
+
+  const messageVariants = {
+    hidden: { opacity: 0, y: 20 },
+    visible: { 
+      opacity: 1, 
+      y: 0,
+      transition: {
+        type: 'spring' as const,
+        stiffness: 300,
+        damping: 25
+      }
+    }
+  };
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [messages])
 
   return (
-    <main>
-      <section
+
+      <div className="app-container" style={{
+        position: 'fixed',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        width: '100%',
+        height: '100vh',
+        display: 'flex',
+        flexDirection: 'column',
+        background: 'white',
+        zIndex: 1000,
+        overflow: 'hidden',
+      }}>
+      {/* Sidebar */}
+      <motion.div 
+        className="sidebar"
+        initial={{ x: -300 }}
+        animate={{ x: showSidebar ? 0 : -300 }}
+        transition={{ type: 'spring', stiffness: 300, damping: 30 }}
         style={{
-          position: 'relative',
-          maxWidth: 800,
-          margin: '0 auto',
-          width: '100%',
-          height: '100vh',
-          display: 'flex',
-          flexDirection: 'column',
+          position: 'absolute',
+          left: 0,
+          top: 100,
+          width: '250px',
+          height: '100%',
+          background: '#f8f9fa',
+          borderRight: '1px solid #e9ecef',
+          zIndex: 1001,
+          padding: '16px',
+          overflowY: 'auto',
         }}
       >
-        {/* Floating layer for detached bubbles */}
-        <div style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}>
-          {Object.values(detached).map((d) => {
-            const m = messages.find((mm) => mm.id === d.id)
-            if (!m) return null
-            return (
-              <div key={`float-${d.id}`} style={{ position: 'absolute', left: '50%', top: '50%', transform: `translate(-50%, -50%) translate(${d.x}px, ${d.y}px)`, pointerEvents: 'auto' }}>
-                <DraggableX
-                  ariaLabel={`${m.role} message (detached)`}
-                  initialX={d.x}
-                  initialY={d.y}
-                  onDragEnd={({ x, y, detached }) => {
-                    if (!detached) {
-                      setDetached((prev) => {
-                        const next = { ...prev }
-                        delete next[m.id]
-                        return next
-                      })
-                    } else {
-                      setDetached((prev) => ({ ...prev, [m.id]: { id: m.id, x, y } }))
-                    }
-                  }}
-                >
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <ChatBubble role={m.role}>{m.text}</ChatBubble>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setDetached((prev) => {
-                          const next = { ...prev }
-                          delete next[m.id]
-                          return next
-                        })
-                        setResetSignal((n) => n + 1)
-                      }}
-                      title="Return to stream"
-                    >
-                      Return
-                    </button>
-                  </div>
-                </DraggableX>
-              </div>
-            )
-          })}
+        <div style={{ marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+          <h3 style={{ margin: 0, fontSize: '1rem', color: '#343a40' }}>Conversations</h3>
+          <button 
+            onClick={() => setShowSidebar(false)}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: '#6c757d',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: '4px',
+              borderRadius: '4px',
+            }}
+            title="Close sidebar"
+          >
+            <FiX size={18} />
+          </button>
         </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px'}}>
+          {conversations.map(conv => (
+            <div 
+              key={conv.id}
+              onClick={() => {
+                setCurrentConversationId(conv.id);
+                setShowSidebar(false);
+              }}
+              style={{
+                padding: '10px 12px',
+                borderRadius: '6px',
+                background: conv.id === currentConversationId ? '#e7f5ff' : 'white',
+                border: `1px solid ${conv.id === currentConversationId ? '#4dabf7' : '#e9ecef'}`,
+                cursor: 'pointer',
+                transition: 'all 0.2s ease',
+              }}
+            >
+              <div style={{ 
+                fontSize: '0.9rem', 
+                fontWeight: 500, 
+                marginBottom: '4px',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}>
+                {conv.title}
+              </div>
+              <div style={{ 
+                fontSize: '0.7rem', 
+                color: '#6c757d',
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}>
+                {conv.messages.filter(m => m.role === 'user' || m.role === 'agent').length} messages • {new Date(conv.updatedAt).toLocaleDateString()}
+              </div>
+            </div>
+          ))}
+        </div>
+      </motion.div>
 
-        {/* Message stream anchored to bottom; new items append at bottom and push older ones upward */}
-        <div
-          ref={streamRef}
+      {/* Overlay when sidebar is open */}
+      {showSidebar && (
+        <div 
+          onClick={() => setShowSidebar(false)}
           style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.3)',
+            zIndex: 1000,
+          }}
+        />
+      )}
+
+      {/* Header */}
+      <motion.div 
+        className="app-header"
+        onClick={toggleMinimize}
+        style={{
+          padding: '16px',
+          background: 'linear-gradient(135deg, #1971c2, #1864ab)',
+          color: 'white',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          cursor: 'pointer',
+          userSelect: 'none',
+          position: 'relative',
+          zIndex: 1002,
+        }}
+        whileTap={{ scale: 0.98 }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowSidebar(!showSidebar);
+            }}
+            style={{
+              background: 'rgba(255, 255, 255, 0.2)',
+              border: 'none',
+              color: 'white',
+              borderRadius: '6px',
+              width: '100px',
+              height: '32px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              cursor: 'pointer',
+              transition: 'background 0.2s ease',
+            }}
+            title="Show conversations"
+          >
+          <span>History</span>
+          </button>
+          <h2 style={{ 
+            margin: 0, 
+            fontSize: '1.1rem',
+            fontWeight: 600,
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px'
+          }}>
+            <span style={{
+              display: 'inline-block',
+              width: '8px',
+              height: '8px',
+              borderRadius: '50%',
+              background: '#4dabf7',
+              boxShadow: '0 0 0 2px rgba(255,255,255,0.3)'
+            }} />
+            {conversations.find(c => c.id === currentConversationId)?.title || 'AICO Assistant'}
+          </h2>
+        </div>
+        <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              createNewConversation();
+            }}
+            style={{
+              background: 'rgba(255, 255, 255, 0.2)',
+              border: 'none',
+              color: 'white',
+              borderRadius: '6px',
+              padding: '6px 10px',
+              fontSize: '0.8rem',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '4px',
+              cursor: 'pointer',
+              transition: 'background 0.2s ease',
+            }}
+            title="Start new conversation"
+          >
+            <FiPlus size={14} />
+            <span>New</span>
+          </button>
+          <motion.div
+            animate={{ rotate: isMinimized ? 0 : 180 }}
+            transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+          >
+            {isMinimized ? <FiMaximize2 /> : <FiMinimize2 />}
+          </motion.div>
+        </div>
+      </motion.div>
+
+      <motion.div
+        className="app-content"
+        variants={containerVariants}
+        initial="expanded"
+        animate={isMinimized ? "minimized" : "expanded"}
+        style={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          overflow: 'hidden',
+          background: '#f8f9fa',
+        }}
+      >
+        {/* Messages container */}
+        <motion.div 
+          className="messages-container"
+          variants={contentVariants}
+          initial="hidden"
+          animate="visible"
+          style={{
+            flex: 1,
+            overflowY: 'auto',
+            padding: '16px',
             display: 'flex',
             flexDirection: 'column',
-            justifyContent: 'flex-end',
-            gap: 8,
-            paddingBottom: 72,
-            flex: 1,
-            overflow: 'auto',
+            gap: '16px',
           }}
         >
-          {messages.map((m) => {
-            const isDetached = Boolean(detached[m.id])
-            if (isDetached) {
-              return (
-                <div key={`ph-${m.id}`} style={{ opacity: 0.6, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8 }}>
-                  <span style={{ fontStyle: 'italic' }}>Detached {m.role} message</span>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDetached((prev) => {
-                        const next = { ...prev }
-                        delete next[m.id]
-                        return next
-                      })
-                      setResetSignal((n) => n + 1)
+          <AnimatePresence>
+            {messages.map((msg) => {
+              const isDetached = Boolean(detached[msg.id])
+              
+              if (isDetached) {
+                const d = detached[msg.id]
+                return (
+                  <motion.div
+                    key={`float-${msg.id}`}
+                    className="detached-message"
+                    style={{
+                      position: 'fixed',
+                      left: '80%',
+                      top: '50%',
+                      transform: `translate(-50%, -50%) translate(${d.x}px, ${d.y}px)`,
+                      zIndex: 1001,
+                      maxWidth: '600px',
+                      background: 'white',
+                      borderRadius: '12px',
+                      boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                      overflow: 'hidden',
                     }}
+                    initial={{ opacity: 0, scale: 0.9 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    exit={{ opacity: 0, scale: 0.9 }}
+                    transition={{ type: 'spring', stiffness: 500, damping: 30 }}
                   >
-                    Return
-                  </button>
-                </div>
-              )
-            }
-            return (
-              <DraggableX
-                key={m.id}
-                ariaLabel={`${m.role} message`}
-                onDragEnd={({ x, y, detached: isDetachedDrop }) => {
-                  if (isDetachedDrop) {
-                    setDetached((prev) => ({ ...prev, [m.id]: { id: m.id, x, y } }))
-                  } else {
-                    setDetached((prev) => {
-                      const next = { ...prev }
-                      delete next[m.id]
-                      return next
-                    })
-                  }
-                }}
-                resetToCenterSignal={resetSignal}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <ChatBubble role={m.role}>{m.text}</ChatBubble>
-                </div>
-              </DraggableX>
-            )
-          })}
-        </div>
+                    <div style={{ 
+                      padding: '12px 16px',
+                      background: '#f8f9fa',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                      borderBottom: '1px solid #e9ecef',
+                    }}>
+                      <span style={{ 
+                        fontSize: '0.8rem',
+                        color: '#495057',
+                        fontWeight: 500,
+                        textTransform: 'capitalize'
+                      }}>
+                        {msg.role}
+                      </span>
+                      <button
+                        onClick={() => {
+                          setDetached(prev => {
+                            const next = { ...prev }
+                            delete next[msg.id]
+                            return next
+                          })
+                          setResetSignal(n => n + 1)
+                        }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          color: '#868e96',
+                          cursor: 'pointer',
+                          padding: '4px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          borderRadius: '4px',
+                        }}
+                        title="Return to chat"
+                      >
+                        <FiX size={16} />
+                      </button>
+                    </div>
+                    <div style={{ padding: '16px' }}>
+                      <ChatBubble 
+                        role={msg.role} 
+                        timestamp={msg.timestamp}
+                        showTimestamp={false}
+                      >
+                        {msg.text}
+                      </ChatBubble>
+                    </div>
+                  </motion.div>
+                )
+              }
 
-        {/* Pinned input at bottom */}
-        <div style={{ position: 'sticky', bottom: 0, left: 0, right: 0, background: 'transparent', paddingTop: 8, paddingBottom: 12 }}>
-          <ChatInput onSend={handleSend} onAudioToggle={(r) => console.log('audio recording:', r)} />
+              return (
+                <motion.div
+                  key={msg.id}
+                  variants={messageVariants}
+                  style={{
+                    opacity: isDetached ? 0.5 : 1,
+                    transition: 'opacity 0.2s ease',
+                  }}
+                >
+                  <DraggableX
+                    ariaLabel={`${msg.role} message`}
+                    onDragEnd={({ x, y, detached: isDetachedDrop }) => {
+                      if (isDetachedDrop) {
+                        setDetached(prev => ({
+                          ...prev,
+                          [msg.id]: { id: msg.id, x, y }
+                        }))
+                      } else {
+                        setDetached(prev => {
+                          const next = { ...prev }
+                          delete next[msg.id]
+                          return next
+                        })
+                      }
+                    }}
+                    resetToCenterSignal={resetSignal}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <ChatBubble 
+                        role={msg.role} 
+                        timestamp={msg.timestamp}
+                      >
+                        {msg.text}
+                      </ChatBubble>
+                      
+                      {isDetached && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDetached(prev => {
+                              const next = { ...prev }
+                              delete next[msg.id]
+                              return next
+                            })
+                            setResetSignal(n => n + 1)
+                          }}
+                          style={{
+                            background: 'rgba(0,0,0,0.05)',
+                            border: 'none',
+                            borderRadius: '50%',
+                            width: '24px',
+                            height: '24px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            cursor: 'pointer',
+                            color: '#495057',
+                            flexShrink: 0,
+                          }}
+                          title="Return to chat"
+                        >
+                          <FiPlus style={{ transform: 'rotate(45deg)' }} size={16} />
+                        </button>
+                      )}
+                    </div>
+                  </DraggableX>
+                </motion.div>
+              )
+            })}
+            <div ref={messagesEndRef} />
+          </AnimatePresence>
+        </motion.div>
+
+        {/* Input area */}
+        <div style={{
+          padding: '16px',
+          background: 'white',
+          borderTop: '1px solid #e9ecef',
+          boxShadow: '0 -2px 10px rgba(0,0,0,0.02)'
+        }}>
+          <ChatInput 
+            onSend={handleSend} 
+            onAudioToggle={(isRecording) => {
+              console.log('Audio recording:', isRecording)
+              // Implement audio recording logic here
+            }} 
+            placeholder="Type a message..."
+          />
+          
+          <div style={{
+            fontSize: '0.7rem',
+            color: '#868e96',
+            textAlign: 'center',
+            marginTop: '8px',
+            opacity: 0.7
+          }}>
+            Drag messages to detach them • AICO v1.0.0
+          </div>
         </div>
-      </section>
-    </main>
+      </motion.div>
+    </div>
   )
 }
 
