@@ -5,7 +5,7 @@ import DraggableX from './components/DraggableX'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiPlus, FiX, FiMaximize2, FiMinimize2 } from 'react-icons/fi'
-import { sendMessageToHume } from './Services/humeService';
+import { sendAudioToHume, sendMessageToHume } from './Services/humeService';
 
 type Message = { id: string; role: ChatRole; text: string; timestamp: Date };
 type Conversation = {
@@ -53,6 +53,108 @@ function App() {
   useEffect(() => {
     localStorage.setItem('conversations', JSON.stringify(conversations));
   }, [conversations]);
+
+  const handleAudioSend = async (audioBlob: Blob) => {
+    if (!currentConversationId) return;
+    
+    const conversation = conversations.find(c => c.id === currentConversationId);
+    if (!conversation) return;
+    
+    try {
+      // Show a placeholder message while processing
+      const placeholderId = crypto.randomUUID();
+      const placeholderMsg: Message = {
+        id: placeholderId,
+        role: 'user',
+        text: '🎤 [Voice message - Processing...]',
+        timestamp: new Date()
+      };
+      
+      setConversations(prev => 
+        prev.map(c => c.id === currentConversationId
+          ? { 
+              ...c, 
+              messages: [...c.messages, placeholderMsg],
+              updatedAt: new Date()
+            }
+          : c
+        )
+      );
+      
+      // Send audio to Hume
+      const conversationHistory = conversation.messages
+        .filter(m => m.role !== 'system')
+        .map(m => ({
+          role: m.role === 'agent' ? 'assistant' : m.role,
+          content: m.text
+        }));
+      
+      const response = await sendAudioToHume(audioBlob, conversationHistory);
+      
+      // Remove placeholder and add actual message
+      setConversations(prev => 
+        prev.map(c => c.id === currentConversationId
+          ? {
+              ...c,
+              messages: [
+                ...c.messages.filter(m => m.id !== placeholderId),
+                {
+                  id: crypto.randomUUID(),
+                  role: 'user',
+                  text: '🎤 [Voice message]',
+                  timestamp: new Date()
+                }
+              ],
+              updatedAt: new Date()
+            }
+          : c
+        )
+      );
+      
+      // Add Hume's response
+      const agentMsg: Message = { 
+        id: crypto.randomUUID(), 
+        role: 'agent',
+        text: String(response),
+        timestamp: new Date()
+      };
+      
+      setConversations(prev => 
+        prev.map(c => c.id === currentConversationId
+          ? { 
+              ...c, 
+              messages: [...c.messages, agentMsg],
+              title: c.title === 'New Conversation' 
+                ? 'Voice message' 
+                : c.title,
+              updatedAt: new Date()
+            } 
+          : c
+        )
+      );
+    } catch (error) {
+      console.error('Error processing voice message:', error);
+      const placeholderId = crypto.randomUUID();
+      setConversations(prev => 
+        prev.map(c => c.id === currentConversationId
+          ? {
+              ...c,
+              messages: [
+                ...c.messages.filter(m => m.id !== placeholderId),
+                {
+                  id: crypto.randomUUID(),
+                  role: 'system',
+                  text: 'Sorry, there was an error processing your voice message.',
+                  timestamp: new Date()
+                }
+              ],
+              updatedAt: new Date()
+            }
+          : c
+        )
+      );
+    }
+  };
 
   const handleSend = useCallback(async (text: string) => {
     if (!text.trim() || !currentConversationId) return;
@@ -612,6 +714,7 @@ function App() {
         }}>
           <ChatInput 
             onSend={handleSend} 
+            onAudioSend={handleAudioSend}
             onAudioToggle={(isRecording) => {
               console.log('Audio recording:', isRecording)
               // Implement audio recording logic here

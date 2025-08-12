@@ -3,14 +3,16 @@ import { FiSend, FiMic, FiMicOff, FiPaperclip, FiSmile } from 'react-icons/fi'
 import { motion, AnimatePresence } from 'framer-motion'
 
 export interface ChatInputProps {
-  onSend: (message: string) => void
-  disabled?: boolean
-  placeholder?: string
-  onAudioToggle?: (recording: boolean) => void
+  onSend: (message: string) => void;
+  onAudioSend?: (audioBlob: Blob) => Promise<void>;
+  disabled?: boolean;
+  placeholder?: string;
+  onAudioToggle?: (recording: boolean) => void;
 }
 
 export default function ChatInput({
   onSend,
+  onAudioSend,
   disabled = false,
   placeholder = 'Type a message…',
   onAudioToggle,
@@ -19,6 +21,10 @@ export default function ChatInput({
   const [isRecording, setIsRecording] = useState<boolean>(false)
   const [isFocused, setIsFocused] = useState<boolean>(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const streamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+
 
   // Auto-resize textarea as user types
   useEffect(() => {
@@ -27,6 +33,56 @@ export default function ChatInput({
       inputRef.current.style.height = `${Math.min(inputRef.current.scrollHeight, 120)}px`
     }
   }, [message])
+
+  useEffect(() => {
+    if (isRecording) {
+      navigator.mediaDevices.getUserMedia({ audio: true })
+        .then(stream => {
+          streamRef.current = stream;
+          const recorder = new MediaRecorder(stream);
+          const chunks: Blob[] = [];
+          
+          recorder.ondataavailable = (e) => {
+            if (e.data.size > 0) {
+              chunks.push(e.data);
+            }
+          };
+          
+          recorder.onstop = async () => {
+            const audioBlob = new Blob(chunks, { type: 'audio/wav' });
+            if (onAudioSend) {
+              await onAudioSend(audioBlob);
+            }
+            setAudioChunks([]);
+          };
+          
+          mediaRecorderRef.current = recorder;
+          recorder.start();
+        })
+        .catch(err => {
+          console.error('Error accessing microphone:', err);
+          setIsRecording(false);
+          if (onAudioToggle) onAudioToggle(false);
+        });
+    } else {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
+      }
+    }
+
+    return () => {
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        mediaRecorderRef.current.stop();
+      }
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+      }
+    };
+  }, [isRecording, onAudioToggle, onAudioSend]);
 
   const handleSubmit = useCallback(
     (e?: React.FormEvent<HTMLFormElement>) => {
@@ -54,10 +110,15 @@ export default function ChatInput({
   )
 
   const toggleRecording = useCallback(() => {
-    const newRecordingState = !isRecording
-    setIsRecording(newRecordingState)
-    if (onAudioToggle) onAudioToggle(newRecordingState)
-  }, [isRecording, onAudioToggle])
+    if (!isRecording) {
+      setAudioChunks([]);
+      setIsRecording(true);
+      if (onAudioToggle) onAudioToggle(true);
+    } else {
+      setIsRecording(false);
+      if (onAudioToggle) onAudioToggle(false);
+    }
+  }, [isRecording, onAudioToggle]);
 
   const handleAttachmentClick = () => {
     // TODO: Implement file attachment
@@ -148,10 +209,6 @@ export default function ChatInput({
               background: 'transparent',
               overflowY: 'auto',
               scrollbarWidth: 'thin',
-              '&:disabled': {
-                opacity: 0.7,
-                cursor: 'not-allowed',
-              },
             }}
             rows={1}
           />
@@ -206,13 +263,6 @@ export default function ChatInput({
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
                   flexShrink: 0,
-                  '&:disabled': {
-                    background: '#e9ecef',
-                    cursor: 'not-allowed',
-                  },
-                  '&:not(:disabled):hover': {
-                    background: '#1864ab',
-                  },
                 }}
                 title="Send message"
               >
@@ -242,9 +292,6 @@ export default function ChatInput({
                   cursor: 'pointer',
                   transition: 'all 0.2s ease',
                   flexShrink: 0,
-                  '&:hover': {
-                    background: isRecording ? '#ff5252' : '#e9ecef',
-                  },
                 }}
                 title={isRecording ? 'Stop recording' : 'Start recording'}
               >
