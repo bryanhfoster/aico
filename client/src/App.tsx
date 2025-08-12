@@ -1,13 +1,19 @@
 import './App.css'
 import ChatInput from './components/ChatInput'
 import ChatBubble, { type ChatRole } from './components/ChatBubble'
-import DraggableX from './components/DraggableX'
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiPlus, FiX, FiMaximize2, FiMinimize2 } from 'react-icons/fi'
 import { sendAudioToHume, sendMessageToHume } from './Services/humeService';
 
-type Message = { id: string; role: ChatRole; text: string; timestamp: Date };
+type Message = { 
+  id: string; 
+  role: ChatRole; 
+  text: string; 
+  timestamp: Date; 
+  audioBlob?: Blob; 
+};
+
 type Conversation = {
   id: string;
   title: string;
@@ -61,13 +67,22 @@ function App() {
     if (!conversation) return;
     
     try {
+      // Verify the audio blob is valid
+      if (!(audioBlob instanceof Blob)) {
+        console.error('Invalid audio blob received');
+        return;
+      }
+      
+      console.log('Audio blob type:', audioBlob.type, 'size:', audioBlob.size);
+      
       // Show a placeholder message while processing
       const placeholderId = crypto.randomUUID();
       const placeholderMsg: Message = {
         id: placeholderId,
         role: 'user',
         text: '🎤 [Voice message - Processing...]',
-        timestamp: new Date()
+        timestamp: new Date(),
+        audioBlob: audioBlob
       };
       
       setConversations(prev => 
@@ -91,20 +106,20 @@ function App() {
       
       const response = await sendAudioToHume(audioBlob, conversationHistory);
       
-      // Remove placeholder and add actual message
+      // Update the placeholder message with the final voice message
       setConversations(prev => 
         prev.map(c => c.id === currentConversationId
           ? {
               ...c,
-              messages: [
-                ...c.messages.filter(m => m.id !== placeholderId),
-                {
-                  id: crypto.randomUUID(),
-                  role: 'user',
-                  text: '🎤 [Voice message]',
-                  timestamp: new Date()
-                }
-              ],
+              messages: c.messages.map(m => 
+                m.id === placeholderId 
+                  ? {
+                      ...m,
+                      text: '🎤 [Voice message]',
+                      audioBlob: audioBlob
+                    }
+                  : m
+              ),
               updatedAt: new Date()
             }
           : c
@@ -134,20 +149,20 @@ function App() {
       );
     } catch (error) {
       console.error('Error processing voice message:', error);
-      const placeholderId = crypto.randomUUID();
+      // Update the placeholder with an error message
       setConversations(prev => 
         prev.map(c => c.id === currentConversationId
           ? {
               ...c,
-              messages: [
-                ...c.messages.filter(m => m.id !== placeholderId),
-                {
-                  id: crypto.randomUUID(),
-                  role: 'system',
-                  text: 'Sorry, there was an error processing your voice message.',
-                  timestamp: new Date()
-                }
-              ],
+              messages: c.messages.map(m => 
+                m.id === placeholderId
+                  ? {
+                      ...m,
+                      text: '❌ Failed to process voice message',
+                      audioBlob: undefined
+                    }
+                  : m
+              ),
               updatedAt: new Date()
             }
           : c
@@ -624,6 +639,7 @@ function App() {
                         role={msg.role} 
                         timestamp={msg.timestamp}
                         showTimestamp={false}
+                        audioBlob={msg.audioBlob}
                       >
                         {msg.text}
                       </ChatBubble>
@@ -641,63 +657,43 @@ function App() {
                     transition: 'opacity 0.2s ease',
                   }}
                 >
-                  <DraggableX
-                    ariaLabel={`${msg.role} message`}
-                    onDragEnd={({ x, y, detached: isDetachedDrop }) => {
-                      if (isDetachedDrop) {
-                        setDetached(prev => ({
-                          ...prev,
-                          [msg.id]: { id: msg.id, x, y }
-                        }))
-                      } else {
+                  <ChatBubble 
+                    key={msg.id}
+                    role={msg.role}
+                    timestamp={msg.timestamp}
+                    audioBlob={msg.audioBlob}
+                  >
+                    {msg.text}
+                  </ChatBubble>
+                  {isDetached && (
+                    <button
+                      type="button"
+                      onClick={() => {
                         setDetached(prev => {
                           const next = { ...prev }
                           delete next[msg.id]
                           return next
                         })
-                      }
-                    }}
-                    resetToCenterSignal={resetSignal}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <ChatBubble 
-                        role={msg.role} 
-                        timestamp={msg.timestamp}
-                      >
-                        {msg.text}
-                      </ChatBubble>
-                      
-                      {isDetached && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDetached(prev => {
-                              const next = { ...prev }
-                              delete next[msg.id]
-                              return next
-                            })
-                            setResetSignal(n => n + 1)
-                          }}
-                          style={{
-                            background: 'rgba(0,0,0,0.05)',
-                            border: 'none',
-                            borderRadius: '50%',
-                            width: '24px',
-                            height: '24px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            cursor: 'pointer',
-                            color: '#495057',
-                            flexShrink: 0,
-                          }}
-                          title="Return to chat"
-                        >
-                          <FiPlus style={{ transform: 'rotate(45deg)' }} size={16} />
-                        </button>
-                      )}
-                    </div>
-                  </DraggableX>
+                        setResetSignal(n => n + 1)
+                      }}
+                      style={{
+                        background: 'rgba(0,0,0,0.05)',
+                        border: 'none',
+                        borderRadius: '50%',
+                        width: '24px',
+                        height: '24px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        cursor: 'pointer',
+                        color: '#495057',
+                        flexShrink: 0,
+                      }}
+                      title="Return to chat"
+                    >
+                      <FiPlus style={{ transform: 'rotate(45deg)' }} size={16} />
+                    </button>
+                  )}
                 </motion.div>
               )
             })}

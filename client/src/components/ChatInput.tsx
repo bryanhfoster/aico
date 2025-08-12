@@ -21,7 +21,7 @@ export default function ChatInput({
   const [isRecording, setIsRecording] = useState<boolean>(false)
   const [isFocused, setIsFocused] = useState<boolean>(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const [audioChunks, setAudioChunks] = useState<Blob[]>([]);
+  const [, setAudioChunks] = useState<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
 
@@ -39,25 +39,39 @@ export default function ChatInput({
       navigator.mediaDevices.getUserMedia({ audio: true })
         .then(stream => {
           streamRef.current = stream;
-          const recorder = new MediaRecorder(stream);
+          const options = { mimeType: 'audio/webm;codecs=opus' };
+          const recorder = new MediaRecorder(stream, options);
           const chunks: Blob[] = [];
           
+          // Collect data more frequently for better responsiveness
           recorder.ondataavailable = (e) => {
             if (e.data.size > 0) {
+              console.log('Audio chunk received, size:', e.data.size, 'type:', e.data.type);
               chunks.push(e.data);
             }
           };
           
           recorder.onstop = async () => {
-            const audioBlob = new Blob(chunks, { type: 'audio/wav' });
-            if (onAudioSend) {
-              await onAudioSend(audioBlob);
+            try {
+              console.log('Stopped recording, total chunks:', chunks.length);
+              const audioBlob = new Blob(chunks, { type: 'audio/webm;codecs=opus' });
+              console.log('Created audio blob, size:', audioBlob.size, 'type:', audioBlob.type);
+              
+              if (onAudioSend) {
+                await onAudioSend(audioBlob);
+              }
+            } catch (error) {
+              console.error('Error in onstop handler:', error);
+            } finally {
+              setAudioChunks([]);
             }
-            setAudioChunks([]);
           };
           
           mediaRecorderRef.current = recorder;
-          recorder.start();
+          
+          // Start collecting data every 100ms for better chunking
+          recorder.start(100);
+          console.log('Started recording with MIME type:', options.mimeType);
         })
         .catch(err => {
           console.error('Error accessing microphone:', err);
@@ -66,17 +80,29 @@ export default function ChatInput({
         });
     } else {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
+        try {
+          mediaRecorderRef.current.stop();
+          console.log('Stopped recording, waiting for onstop...');
+        } catch (error) {
+          console.error('Error stopping media recorder:', error);
+        }
       }
       if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current.getTracks().forEach(track => {
+          track.stop();
+          console.log('Stopped track:', track.kind);
+        });
         streamRef.current = null;
       }
     }
 
     return () => {
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-        mediaRecorderRef.current.stop();
+        try {
+          mediaRecorderRef.current.stop();
+        } catch (error) {
+          console.error('Error in cleanup - stopping media recorder:', error);
+        }
       }
       if (streamRef.current) {
         streamRef.current.getTracks().forEach(track => track.stop());
