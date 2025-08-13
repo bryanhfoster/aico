@@ -106,6 +106,52 @@ function App() {
       
       const response = await sendAudioToHume(audioBlob, conversationHistory);
       
+      // Wrap audio playback in a Promise
+      await new Promise<void>((resolve) => {
+        // Handle audio response
+        if (response.audioData) {
+          const audioBlob = new Blob([response.audioData], { type: 'audio/wav' });
+          const audioUrl = URL.createObjectURL(audioBlob);
+          
+          // Create audio element
+          const audio = new Audio(audioUrl);
+          audio.preload = 'auto';
+          
+          // Set up event listeners for better error handling
+          const handleError = (error: Event) => {
+            console.error('Audio playback error:', error);
+            // Clean up
+            URL.revokeObjectURL(audioUrl);
+            audio.removeEventListener('error', handleError);
+            audio.removeEventListener('ended', handleEnded);
+            resolve();
+          };
+          
+          const handleEnded = () => {
+            // Clean up
+            URL.revokeObjectURL(audioUrl);
+            audio.removeEventListener('error', handleError);
+            audio.removeEventListener('ended', handleEnded);
+            resolve();
+          };
+          
+          audio.addEventListener('error', handleError);
+          audio.addEventListener('ended', handleEnded);
+          
+          // Try to play the audio
+          const playPromise = audio.play();
+          
+          if (playPromise !== undefined) {
+            playPromise.catch(error => {
+              console.error('Error playing audio:', error);
+              handleError(error as unknown as Event);
+            });
+          }
+        } else {
+          resolve();
+        }
+      });
+      
       // Update the placeholder message with the final voice message
       setConversations(prev => 
         prev.map(c => c.id === currentConversationId
@@ -115,8 +161,8 @@ function App() {
                 m.id === placeholderId 
                   ? {
                       ...m,
-                      text: '🎤 [Voice message]',
-                      audioBlob: audioBlob
+                      text: response.text || '🎤 [Voice message]',
+                      audioBlob: response.audioData ? new Blob([response.audioData], { type: 'audio/wav' }) : undefined
                     }
                   : m
               ),

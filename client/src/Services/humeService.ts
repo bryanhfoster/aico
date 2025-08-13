@@ -4,26 +4,60 @@ const client = new HumeClient({
   apiKey: import.meta.env.VITE_HUME_API_KEY,
 });
 
-export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Array<{ role: 'user' | 'assistant' | 'system', content: string }> = []) => {
+export interface HumeResponse {
+  text: string;
+  audioData?: ArrayBuffer;
+}
+
+export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Array<{ role: 'user' | 'assistant' | 'system', content: string }> = []): Promise<HumeResponse> => {
     try {
       const socket = client.empathicVoice.chat.connect();
       
       return new Promise((resolve, reject) => {
         let fullResponse = '';
+        let audioChunks: Uint8Array[] = [];
         let isFirstMessage = true;
         
         socket.on("message", (message) => {
           if (message.type === "assistant_message") {
             const text = message.message?.content || '';
             fullResponse += text;
-            if (isFirstMessage) {
-              isFirstMessage = false;
-              setTimeout(() => {
-                resolve(fullResponse);
-                socket.close();
-              }, 500);
+          } 
+          else if (message.type === "audio_output") {
+            // Handle audio data
+            if (message.data) {
+              // Convert base64 to ArrayBuffer
+              const binaryString = atob(message.data);
+              const len = binaryString.length;
+              const bytes = new Uint8Array(len);
+              for (let i = 0; i < len; i++) {
+                bytes[i] = binaryString.charCodeAt(i);
+              }
+              audioChunks.push(bytes);
             }
-          } else if (message.type === "error") {
+          }
+          else if (message.type === "assistant_end") {
+            // Combine all audio chunks
+            let totalLength = 0;
+            audioChunks.forEach(chunk => {
+              totalLength += chunk.length;
+            });
+            
+            const combined = new Uint8Array(totalLength);
+            let offset = 0;
+            audioChunks.forEach(chunk => {
+              combined.set(chunk, offset);
+              offset += chunk.length;
+            });
+            
+            resolve({
+              text: fullResponse,
+              audioData: combined.buffer
+            });
+            
+            socket.close();
+          }
+          else if (message.type === "error") {
             reject(new Error(message.message || 'Unknown error from Hume AI'));
             socket.close();
           }
@@ -45,13 +79,13 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
                 // @ts-ignore - Send system message
                 socket.socket.send(JSON.stringify({
                   type: 'system_prompt',
-                  system_prompt: lastMessage.content.substring(0, 500) // Limit system prompt length
+                  system_prompt: lastMessage.content.substring(0, 500)
                 }));
               } else if (lastMessage.role === 'assistant') {
                 // @ts-ignore - Send assistant message as context
                 socket.socket.send(JSON.stringify({
                   type: 'assistant_input',
-                  text: lastMessage.content.substring(0, 200) // Limit context length
+                  text: lastMessage.content.substring(0, 200)
                 }));
               }
             }
@@ -75,13 +109,6 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
                 data: audioData
               }));
             }
-            
-            // Send end of stream using a valid message type
-            // We'll use an empty user_input message to signal the end
-            // ws.send(JSON.stringify({
-            //   type: 'user_input',
-            //   text: ''
-            // }));
           } catch (error) {
             reject(error);
             socket.close();
