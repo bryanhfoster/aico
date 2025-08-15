@@ -9,6 +9,54 @@ export interface HumeResponse {
   audioData?: ArrayBuffer;
 }
 
+function createWavHeader(dataLength: number): Uint8Array {
+  // Hume AI uses 16kHz sample rate for voice
+  const sampleRate = 44100; // Changed from 24000 to 16000
+  const numChannels = 1;    // Mono
+  const bitsPerSample = 16; // 16-bit audio
+  
+  const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+  const blockAlign = numChannels * (bitsPerSample / 8);
+  
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  
+  // RIFF identifier
+  writeString(view, 0, 'RIFF');
+  // RIFF chunk length
+  view.setUint32(4, 36 + dataLength, true);
+  // RIFF type
+  writeString(view, 8, 'WAVE');
+  // Format chunk identifier
+  writeString(view, 12, 'fmt ');
+  // Format chunk length
+  view.setUint32(16, 16, true);
+  // Audio format (1 = PCM)
+  view.setUint16(20, 1, true);
+  // Channel count
+  view.setUint16(22, numChannels, true);
+  // Sample rate
+  view.setUint32(24, sampleRate, true);
+  // Byte rate (sample rate * block align)
+  view.setUint32(28, byteRate, true);
+  // Block align (channel count * bytes per sample)
+  view.setUint16(32, blockAlign, true);
+  // Bits per sample
+  view.setUint16(34, bitsPerSample, true);
+  // Data chunk identifier
+  writeString(view, 36, 'data');
+  // Data chunk length
+  view.setUint32(40, dataLength, true);
+  
+  return new Uint8Array(header);
+}
+
+function writeString(view: DataView, offset: number, str: string) {
+  for (let i = 0; i < str.length; i++) {
+    view.setUint8(offset + i, str.charCodeAt(i));
+  }
+}
+
 export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Array<{ role: 'user' | 'assistant' | 'system', content: string }> = []): Promise<HumeResponse> => {
     try {
       const socket = client.empathicVoice.chat.connect();
@@ -26,17 +74,29 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
           else if (message.type === "audio_output") {
             // Handle audio data
             if (message.data) {
-              // Convert base64 to ArrayBuffer
-              const binaryString = atob(message.data);
-              const len = binaryString.length;
-              const bytes = new Uint8Array(len);
-              for (let i = 0; i < len; i++) {
-                bytes[i] = binaryString.charCodeAt(i);
+              try {
+                // Convert base64 to ArrayBuffer
+                const binaryString = atob(message.data);
+                const len = binaryString.length;
+                const bytes = new Uint8Array(len);
+                for (let i = 0; i < len; i++) {
+                  bytes[i] = binaryString.charCodeAt(i);
+                }
+                audioChunks.push(bytes);
+              } catch (error) {
+                console.error('Error processing audio chunk:', error);
               }
-              audioChunks.push(bytes);
             }
           }
           else if (message.type === "assistant_end") {
+            console.log('Received assistant_end with audio chunks:', audioChunks.length);
+            
+            if (audioChunks.length === 0) {
+              resolve({ text: fullResponse });
+              socket.close();
+              return;
+            }
+            
             // Combine all audio chunks
             let totalLength = 0;
             audioChunks.forEach(chunk => {
@@ -50,9 +110,15 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
               offset += chunk.length;
             });
             
+            // Create a WAV header
+            const wavHeader = createWavHeader(combined.length);
+            const finalAudioData = new Uint8Array(wavHeader.length + combined.length);
+            finalAudioData.set(wavHeader, 0);
+            finalAudioData.set(combined, wavHeader.length);
+            
             resolve({
               text: fullResponse,
-              audioData: combined.buffer
+              audioData: finalAudioData.buffer
             });
             
             socket.close();

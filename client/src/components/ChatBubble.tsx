@@ -2,7 +2,7 @@ import { type ReactNode, useMemo, type CSSProperties, useState, useRef, useEffec
 import { FcInfo, FcCustomerSupport, FcBusinessman } from 'react-icons/fc'
 import { motion } from 'framer-motion'
 import { format } from 'date-fns'
-import { FaPlay, FaPause } from 'react-icons/fa'
+import { FaMicrophone, FaVolumeUp } from 'react-icons/fa'
 
 export type ChatRole = 'system' | 'assistant' | 'user' | 'agent'
 
@@ -74,7 +74,7 @@ export default function ChatBubble({
     }
   }, [audioUrl])
 
-  const { icon, textColor, alignSelf, bubbleStyle } = useMemo(() => {
+  const { icon, textColor, alignSelf, bubbleStyle, audioIcon } = useMemo(() => {
     const baseStyle: CSSProperties = {
       borderRadius: '18px',
       padding: '12px 16px',
@@ -82,51 +82,78 @@ export default function ChatBubble({
       boxShadow: '0 1px 2px rgba(0,0,0,0.1)',
       position: 'relative',
       transition: 'all 0.2s ease',
-      whiteSpace: 'pre-wrap',
-      wordBreak: 'break-word',
+      whiteSpace: 'normal',
+      wordBreak: 'break-all',
       overflowWrap: 'break-word',
-      hyphens: 'auto' as const
+      hyphens: 'auto',
+      width: '100%',
+      lineHeight: '1.5',
+      boxSizing: 'border-box',
+      overflow: 'visible',
+      display: 'block',
+      textAlign: 'left',
+      margin: '4px 0',
+      wordWrap: 'break-word',
+      overflowX: 'hidden',
+      minWidth: 0,
+      maxWidth: '100%',
+      msWordBreak: 'break-all',
+      WebkitHyphens: 'auto',
+      MozHyphens: 'auto',
+      msHyphens: 'auto',
+      hyphens: 'auto'
     }
 
     switch (role) {
       case 'system':
         return {
           icon: <FcInfo aria-hidden className="text-lg" />,
-          bubbleColor: '#f8f9fa',
+          audioIcon: null,
           textColor: '#212529',
-          alignSelf: 'flex-start' as const,
+          alignSelf: 'center' as const,
           bubbleStyle: {
             ...baseStyle,
             borderTopLeftRadius: '4px',
             background: '#f8f9fa',
-            border: '1px solid #e9ecef'
+            border: '1px solid #e9ecef',
+            textAlign: 'center',
+            maxWidth: '80%',
+            margin: '4px auto'
           }
         }
       case 'agent':
+      case 'assistant':
         return {
           icon: <FcCustomerSupport aria-hidden className="text-lg" />,
-          bubbleColor: '#e9f5ff',
-          textColor: '#0a58ca',
+          audioIcon: <FaVolumeUp size={14} />,
+          textColor: '#212529',
+          overflowWrap: 'break-word',
+          whiteSpace: 'pre-wrap',
+          overflow: 'hidden',
           alignSelf: 'flex-start' as const,
           bubbleStyle: {
             ...baseStyle,
             borderTopLeftRadius: '4px',
             background: 'linear-gradient(135deg, #e9f5ff, #d0ebff)',
-            border: '1px solid #d0ebff'
+            border: '1px solid #d0ebff',
+            textAlign: 'left',
+            marginRight: 'auto'
           }
         }
       case 'user':
       default:
         return {
           icon: <FcBusinessman aria-hidden className="text-lg" />,
-          bubbleColor: '#e6fcf5',
+          audioIcon: <FaMicrophone size={14} />,
           textColor: '#087f5b',
           alignSelf: 'flex-end' as const,
           bubbleStyle: {
             ...baseStyle,
             borderTopRightRadius: '4px',
             background: 'linear-gradient(135deg, #e6fcf5, #c3fae8)',
-            border: '1px solid #c3fae8'
+            border: '1px solid #c3fae8',
+            textAlign: 'right',
+            marginLeft: 'auto'
           }
         }
     }
@@ -174,10 +201,13 @@ export default function ChatBubble({
       <div style={{ 
         display: 'flex', 
         gap: '8px',
-        flexDirection: alignSelf === 'flex-end' ? 'row-reverse' : 'row',
-        alignItems: 'flex-start'
+        flexDirection: 'row',
+        alignItems: 'flex-start',
+        justifyContent: role === 'user' ? 'flex-end' : 'flex-start',
+        width: '100%'
       }}>
-        {alignSelf === 'flex-start' && (
+        {/* Show icon on the left for agent */}
+        {(role === 'agent' || role === 'assistant') && (
           <div className="flex-shrink-0" style={{ 
             width: '32px',
             height: '32px',
@@ -195,10 +225,10 @@ export default function ChatBubble({
         <div style={{
           display: 'flex',
           flexDirection: 'column',
-          alignItems: alignSelf === 'flex-end' ? 'flex-end' : 'flex-start',
+          alignItems: role === 'user' ? 'flex-end' : 'flex-start',
           gap: '4px',
-          maxWidth: '100%',
-          width: '100%'
+          maxWidth: 'calc(100% - 40px)',
+          width: 'auto'
         }}>
           <div style={{
             ...bubbleStyle,
@@ -206,19 +236,27 @@ export default function ChatBubble({
             lineHeight: '1.5',
             fontSize: '0.95rem',
             display: 'flex',
-            alignItems: 'center',
-            gap: '12px',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: '8px',
             padding: audioUrl ? '12px 16px' : '12px 16px',
             cursor: audioUrl ? 'pointer' : 'default',
-            width: 'fit-content',
+            width: '100%',
             maxWidth: '100%',
             transition: 'all 0.2s ease',
             '&:hover': {
               boxShadow: audioUrl ? '0 2px 8px rgba(0,0,0,0.1)' : 'none'
-            }
+            },
+            whiteSpace: 'pre-line',
+            wordBreak: 'break-word',
+            overflowWrap: 'break-word',
+            overflow: 'hidden'
           } as CSSProperties}
           onClick={audioUrl ? togglePlayPause : undefined}
           >
+            <div style={{ width: '100%' }}>
+              {children}
+            </div>
             {audioUrl && (
               <button
                 type="button"
@@ -227,41 +265,18 @@ export default function ChatBubble({
                   togglePlayPause();
                 }}
                 style={{
-                  background: 'rgba(255, 255, 255, 0.8)',
+                  background: 'transparent',
                   border: 'none',
-                  borderRadius: '50%',
-                  width: '32px',
-                  height: '32px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  cursor: 'pointer',
-                  color: textColor,
-                  flexShrink: 0,
-                  boxShadow: '0 2px 4px rgba(0,0,0,0.1)',
-                  transition: 'all 0.2s ease',
-                  '&:hover': {
-                    transform: 'scale(1.05)',
-                    boxShadow: '0 4px 8px rgba(0,0,0,0.15)'
-                  }
                 }}
                 aria-label={isPlaying ? 'Pause' : 'Play'}
               >
                 {isPlaying ? (
-                  <FaPause size={14} style={{ color: textColor }} />
+                  <FaMicrophone size={14} color={'green'} />
                 ) : (
-                  <FaPlay size={14} style={{ color: textColor, marginLeft: '2px' }} />
+                  <FaVolumeUp size={14} color={'#087f5b'} />
                 )}
               </button>
             )}
-            <span style={{
-              flex: 1,
-              whiteSpace: 'nowrap',
-              overflow: 'hidden',
-              textOverflow: 'ellipsis'
-            }}>
-              {children}
-            </span>
           </div>
           
           {showTimestamp && (
@@ -278,7 +293,8 @@ export default function ChatBubble({
           )}
         </div>
         
-        {alignSelf === 'flex-end' && (
+        {/* Show icon on the right for user */}
+        {role === 'user' && (
           <div className="flex-shrink-0" style={{ 
             width: '32px',
             height: '32px',

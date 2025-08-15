@@ -185,7 +185,7 @@ export default function ChatInput({
           transition: 'all 0.2s ease',
         }}
       >
-        <button
+        {/* <button
           type="button"
           onClick={handleAttachmentClick}
           disabled={disabled}
@@ -207,9 +207,9 @@ export default function ChatInput({
           title="Attach file"
         >
           <FiPaperclip size={18} />
-        </button>
+        </button> */}
 
-        <div style={{ flex: 1, position: 'relative'}}>
+        <div style={{ flex: 1, position: 'relative',}}>
           <textarea
             ref={inputRef}
             value={message}
@@ -222,7 +222,7 @@ export default function ChatInput({
             aria-label="Message"
             style={{
               width: '100%',
-              minHeight: '24px',
+              minHeight: '16px',
               maxHeight: '120px',
               border: 'none',
               outline: 'none',
@@ -230,6 +230,8 @@ export default function ChatInput({
               fontFamily: 'inherit',
               fontSize: '0.95rem',
               lineHeight: '1',
+              textAlign: 'left',
+
               color: '#212529',
               padding: '16 0 0 0',
               background: 'transparent',
@@ -292,7 +294,7 @@ export default function ChatInput({
                 }}
                 title="Send message"
               >
-                <FiSend size={16} />
+                <FiMic size={16} />
               </motion.button>
             ) : (
               <motion.button
