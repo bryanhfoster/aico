@@ -5,51 +5,105 @@ import { Mic, MicOff, Phone } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toggle } from "./toggle";
 import MicFFT from "./MicFFT";
-import { cn } from "./../Utils/index";
 
 export default function Controls() {
   const { disconnect, status, isMuted, unmute, mute, micFft } = useVoice();
 
+  // Styles
+  const styles = {
+    container: {
+      position: 'fixed' as const,
+      bottom: 0,
+      left: 0,
+      width: '100%',
+      padding: '1rem',
+      paddingBottom: '1.5rem',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      background: 'linear-gradient(to top, var(--card), rgba(255, 255, 255, 0.9), transparent)',
+      zIndex: 50,
+    },
+    panel: {
+      padding: '1rem',
+      backgroundColor: 'var(--card)',
+      border: '1px solid var(--border)',
+      borderRadius: '9999px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '1rem',
+      boxShadow: '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)',
+    },
+    audioVisualizer: {
+      position: 'relative' as const,
+      height: '2rem',
+      width: '12rem',
+      flexShrink: 0,
+      flexGrow: 0,
+    },
+    toggleButton: {
+      borderRadius: '9999px',
+      padding: '0.5rem',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      cursor: 'pointer',
+      border: 'none',
+      background: 'transparent',
+    },
+    endCallButton: {
+      display: 'flex',
+      alignItems: 'center',
+      gap: '0.5rem',
+      borderRadius: '9999px',
+      padding: '0.5rem 1rem',
+      cursor: 'pointer',
+      border: 'none',
+      backgroundColor: '#ef4444',
+      color: 'white',
+      transition: 'all 0.2s ease',
+    },
+    icon: {
+      width: '1rem',
+      height: '1rem',
+    },
+  };
+
   return (
-    <div
-      className={cn(
-        "fixed bottom-0 left-0 w-full p-4 pb-6 flex items-center justify-center",
-        "bg-gradient-to-t from-card via-card/90 to-card/0"
-      )}
-    >
+    <div style={styles.container}>
       <AnimatePresence>
         {status.value === "connected" && (
           <motion.div
             initial={{ y: "100%", opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: "100%", opacity: 0 }}
-            className="p-4 bg-card border border-border/50 rounded-full flex items-center gap-4"
+            style={styles.panel}
           >
             {/* Microphone Toggle */}
             <Toggle
-              className="rounded-full"
+              style={styles.toggleButton}
               pressed={!isMuted}
               onPressedChange={() => (isMuted ? unmute() : mute())}
             >
               {isMuted ? (
-                <MicOff className="size-4" />
+                <MicOff style={styles.icon} />
               ) : (
-                <Mic className="size-4" />
+                <Mic style={styles.icon} />
               )}
             </Toggle>
 
             {/* Audio Visualizer */}
-            <div className="relative grid h-8 w-48 shrink grow-0">
-              <MicFFT fft={micFft} className="fill-current" />
+            <div style={styles.audioVisualizer}>
+              <MicFFT fft={micFft} style={{ fill: 'currentColor' }} />
             </div>
 
             {/* End Call Button */}
             <Button
-              className="flex items-center gap-1 rounded-full"
+              style={styles.endCallButton}
               onClick={disconnect}
               variant="destructive"
             >
-              <Phone className="size-4 opacity-50 fill-current" strokeWidth={0} />
+              <Phone style={{ ...styles.icon, fill: 'currentColor' }} strokeWidth={0} />
               <span>End Call</span>
             </Button>
           </motion.div>

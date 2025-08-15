@@ -25,13 +25,63 @@ export default function ClientComponent({
     };
   }, []);
 
+  // Styles
+  const styles = {
+    container: {
+      display: 'flex',
+      flexDirection: 'column' as const,
+      height: '100%',
+      backgroundColor: 'white',
+    },
+    header: {
+      borderBottom: '1px solid #e5e7eb',
+      padding: '1rem',
+      backgroundColor: 'white',
+      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
+    },
+    headerTitle: {
+      fontSize: '1.25rem',
+      fontWeight: 600,
+      color: '#1f2937',
+      margin: 0,
+    },
+    content: {
+      flex: 1,
+      overflow: 'hidden',
+    },
+    wrapper: {
+      height: '100%',
+      display: 'flex',
+      flexDirection: 'column' as const,
+    },
+    messagesContainer: {
+      flex: 1,
+      overflowY: 'auto' as const,
+      padding: '1rem',
+      backgroundColor: '#f9fafb',
+    },
+    controlsContainer: {
+      borderTop: '1px solid #e5e7eb',
+      padding: '1rem',
+      backgroundColor: '#f3f4f6',
+    },
+    controlsInner: {
+      maxWidth: '64rem',
+      margin: '0 auto',
+      width: '100%',
+    },
+    startCallContainer: {
+      marginTop: '1rem',
+    },
+  };
+
   return (
-    <div className="flex flex-col h-full bg-white">
-      <div className="border-b border-gray-200 p-4 bg-white shadow-sm">
-        <h2 className="text-xl font-semibold text-gray-800">AI Assistant</h2>
+    <div style={styles.container}>
+      <div style={styles.header}>
+        <h2 style={styles.headerTitle}>AI Assistant</h2>
       </div>
       
-      <div className="flex-1 overflow-hidden">
+      <div style={styles.content}>
         <VoiceProvider
           onMessage={() => {
             if (timeoutRef.current) {
@@ -52,15 +102,15 @@ export default function ClientComponent({
             toast.error(error.message);
           }}
         >
-          <div className="h-full flex flex-col">
-            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-red-500">
+          <div style={styles.wrapper}>
+            <div style={styles.messagesContainer}>
               <Messages ref={messagesRef} />
             </div>
             
-            <div className="border-t border-gray-200 p-4 bg-gray-50">
-              <div className="max-w-3xl mx-auto w-full">
+            <div style={styles.controlsContainer}>
+              <div style={styles.controlsInner}>
                 <Controls />
-                <div className="mt-4">
+                <div style={styles.startCallContainer}>
                   <StartCall configId={configId} accessToken={accessToken} />
                 </div>
               </div>
