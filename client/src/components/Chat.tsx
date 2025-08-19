@@ -14,6 +14,7 @@ export default function ClientComponent({
 }) {
   const timeoutRef = useRef<number | null>(null);
   const messagesRef = useRef<ComponentRef<typeof Messages> | null>(null);
+  // const configId = import.meta.env.VITE_HUME_CONFIG_KEY;
   const configId = '';
 
   // Clean up timeout on unmount

@@ -96,12 +96,10 @@ export default function ChatBubble({
       wordWrap: 'break-word',
       overflowX: 'hidden',
       minWidth: 0,
-      maxWidth: '100%',
       msWordBreak: 'break-all',
       WebkitHyphens: 'auto',
       MozHyphens: 'auto',
       msHyphens: 'auto',
-      hyphens: 'auto'
     }
 
     switch (role) {
