@@ -14,8 +14,8 @@ export default function ClientComponent({
 }) {
   const timeoutRef = useRef<number | null>(null);
   const messagesRef = useRef<ComponentRef<typeof Messages> | null>(null);
-  // const configId = import.meta.env.VITE_HUME_CONFIG_KEY;
-  const configId = '';
+  const configId = import.meta.env.VITE_HUME_CONFIG_KEY;
+  // const configId = '';
 
   // Clean up timeout on unmount
   useEffect(() => {
@@ -101,6 +101,34 @@ export default function ClientComponent({
           }}
           onError={(error) => {
             toast.error(error.message);
+          }}
+          onToolCall={async (toolCall, send) => {
+            console.log("Tool call received:", toolCall);
+            try {
+              switch (toolCall?.name) {
+                case "cancel_ride_by_id": {
+                  return send.success("successfully cancelled");
+                }
+                default: {
+                  return send.error({
+                    error: `Unsupported tool: ${toolCall?.name ?? "unknown"}`,
+                    code: "TOOL_NOT_IMPLEMENTED",
+                    level: "warn",
+                    content: "This tool is not implemented on the client.",
+                  });
+                }
+              }
+            } catch (err) {
+              return send.error({
+                error: "Tool call failed",
+                code: "TOOL_CALL_ERROR",
+                level: "error",
+                content: err instanceof Error ? err.message : "Unknown error occurred",
+              });
+            }
+          }}
+          onInterruption={() => {
+            console.log("Interruption detected");
           }}
         >
           <div style={styles.wrapper}>
