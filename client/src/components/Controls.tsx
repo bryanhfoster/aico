@@ -4,10 +4,10 @@ import { Mic, MicOff, Phone } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Toggle } from "./toggle";
 import MicFFT from "./MicFFT";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function Controls() {
-  const { disconnect, status, isMuted, unmute, mute, micFft, pauseAssistant, resumeAssistant } = useVoice();
+  const { disconnect, status, isMuted, unmute, mute, micFft, pauseAssistant, resumeAssistant, sendSessionSettings } = useVoice();
   const [assistantPaused, setAssistantPaused] = useState(false);
 
   // CSS styles as JavaScript objects
@@ -78,6 +78,32 @@ export default function Controls() {
       strokeWidth: 0
     }
   };
+
+
+  const sendSession = async () => {
+    try {
+      sendSessionSettings({
+        variables: {
+          name: "Atta",
+          age: 35,
+          is_philosopher: true
+        },
+        context: {
+          text: 'this user is dying from cancer, ask him if he needs anything',
+          type: 'persistent'
+        }
+      });
+      
+    } catch (e) {
+      console.error('Failed to send session settings', e);
+    }
+  };
+
+  useEffect(() => {
+    if (status.value === "connected") {
+      sendSession();
+    }
+  }, [status.value]);
 
   return (
     <div style={styles.container}>

@@ -9,7 +9,7 @@ interface StartCallUIProps {
   accessToken: string;
 }
 
-export default function StartCallUI({ status, startCall }: StartCallUIProps) {
+export default function StartCallUI({ status,  startCall }: StartCallUIProps) {
   // CSS styles as JavaScript objects
   const styles = {
     overlay: {
