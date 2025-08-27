@@ -7,8 +7,25 @@ import MicFFT from "./MicFFT";
 import { useEffect, useState } from "react";
 
 export default function Controls() {
-  const { disconnect, status, isMuted, unmute, mute, micFft, pauseAssistant, resumeAssistant, sendSessionSettings } = useVoice();
+  const {
+    disconnect,
+    status,
+    isMuted,
+    unmute,
+    mute,
+    micFft,
+    pauseAssistant,
+    resumeAssistant,
+    sendSessionSettings
+  } = useVoice();
+
   const [assistantPaused, setAssistantPaused] = useState(false);
+
+  // User input state
+  const [userName, setUserName] = useState("");
+  const [userAge, setUserAge] = useState("");
+  const [isPhilosopher, setIsPhilosopher] = useState(false);
+  const [userContext, setUserContext] = useState("");
 
   // CSS styles as JavaScript objects
   const styles = {
@@ -22,7 +39,8 @@ export default function Controls() {
       display: "flex",
       alignItems: "center",
       justifyContent: "center",
-      background: "linear-gradient(to top, var(--card-bg), var(--card-bg-90), var(--card-bg-0))"
+      background: "linear-gradient(to top, var(--card-bg), var(--card-bg-90), var(--card-bg-0))",
+      zIndex: 1 
     },
     controlsWrapper: {
       padding: "1rem",
@@ -32,6 +50,40 @@ export default function Controls() {
       display: "flex",
       alignItems: "center",
       gap: "1rem"
+    },
+    formWrapper: {
+      padding: "1rem",
+      backgroundColor: "var(--card-bg)",
+      border: "1px solid var(--border-color-50)",
+      borderRadius: "1rem",
+      display: "flex",
+      flexDirection: "column",
+      gap: "0.5rem",
+      width: "100%",
+      maxWidth: "20rem",
+      pointerEvents: "auto",
+      zIndex: 9999   
+    },
+    input: {
+      padding: "0.5rem",
+      borderRadius: "0.5rem",
+      border: "0.01rem solid black",
+      color: "black",
+      backgroundColor: "white"
+    },
+    textarea: {
+      padding: "0.5rem",
+      borderRadius: "0.5rem",
+      border: "0.01rem solid black",
+      minHeight: "4rem",
+      color: "black",
+      backgroundColor: "white"
+    },
+    checkboxRow: {
+      display: "flex",
+      alignItems: "center",
+      gap: "0.5rem",
+      color: "black"
     },
     toggleButton: {
       borderRadius: "9999px"
@@ -79,23 +131,22 @@ export default function Controls() {
     }
   };
 
-
+  // send session settings with user inputs
   const sendSession = async () => {
     try {
       sendSessionSettings({
         variables: {
-          name: "Atta",
-          age: 35,
-          is_philosopher: true
+          name: userName,
+          age: Number(userAge),
+          is_philosopher: isPhilosopher
         },
         context: {
-          text: 'this user is dying from cancer, ask him if he needs anything',
-          type: 'persistent'
+          text: userContext,
+          type: "persistent"
         }
       });
-      
     } catch (e) {
-      console.error('Failed to send session settings', e);
+      console.error("Failed to send session settings", e);
     }
   };
 
@@ -109,19 +160,11 @@ export default function Controls() {
     <div style={styles.container}>
       <AnimatePresence>
         {status.value === "connected" ? (
+          // === Connected controls ===
           <motion.div
-            initial={{
-              y: "100%",
-              opacity: 0,
-            }}
-            animate={{
-              y: 0,
-              opacity: 1,
-            }}
-            exit={{
-              y: "100%",
-              opacity: 0,
-            }}
+            initial={{ y: "100%", opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: "100%", opacity: 0 }}
             style={styles.controlsWrapper}
           >
             <Toggle
@@ -174,7 +217,47 @@ export default function Controls() {
               <span>End Call</span>
             </Button>
           </motion.div>
-        ) : null}
+        ) : (
+          // === Pre-call form ===
+          <motion.div
+            initial={{ y: "100%", opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: "100%", opacity: 0 }}
+            style={styles.formWrapper}
+          >
+            <input
+              style={styles.input}
+              type="text"
+              placeholder="Your name"
+              value={userName}
+              onChange={(e) => setUserName(e.target.value)}
+            />
+            <input
+              style={styles.input}
+              type="number"
+              placeholder="Your age"
+              value={userAge}
+              onChange={(e) => setUserAge(e.target.value)}
+            />
+            {/* <label style={styles.checkboxRow}>
+              <input
+                type="checkbox"
+                checked={isPhilosopher}
+                onChange={(e) => setIsPhilosopher(e.target.checked)}
+              />
+              Philosopher?
+            </label> */}
+            <textarea
+              style={styles.textarea}
+              placeholder="Context"
+              value={userContext}
+              onChange={(e) => setUserContext(e.target.value)}
+            />
+            <p style={{ fontSize: "0.85rem", opacity: 0.7 }}>
+              Fill this info before starting your call.
+            </p>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );

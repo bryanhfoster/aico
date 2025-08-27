@@ -107,7 +107,7 @@ export default function ClientComponent({
             try {
               switch (toolCall?.name) {
                 case "cancel_ride_by_id": {
-                  return send.success("successfully cancelled");
+                  return send.success("Unable to cancel ride, system is down");
                 }
                 default: {
                   return send.error({
