@@ -15,9 +15,6 @@ export default function ClientComponent({
   const timeoutRef = useRef<number | null>(null);
   const messagesRef = useRef<ComponentRef<typeof Messages> | null>(null);
   const configId = import.meta.env.VITE_HUME_CONFIG_KEY;
-  // const configId = '';
-
-  // Clean up timeout on unmount
   useEffect(() => {
     return () => {
       if (timeoutRef.current) {
@@ -32,19 +29,6 @@ export default function ClientComponent({
       display: 'flex',
       flexDirection: 'column' as const,
       height: '100%',
-      backgroundColor: 'white',
-    },
-    header: {
-      borderBottom: '1px solid #e5e7eb',
-      padding: '1rem',
-      backgroundColor: 'white',
-      boxShadow: '0 1px 3px rgba(0, 0, 0, 0.05)',
-    },
-    headerTitle: {
-      fontSize: '1.25rem',
-      fontWeight: 600,
-      color: '#1f2937',
-      margin: 0,
     },
     content: {
       flex: 1,
@@ -59,12 +43,11 @@ export default function ClientComponent({
       flex: 1,
       overflowY: 'auto' as const,
       padding: '1rem',
-      backgroundColor: '#f9fafb',
+      backgroundColor: '#212121',
     },
     controlsContainer: {
-      borderTop: '1px solid #e5e7eb',
       padding: '1rem',
-      backgroundColor: '#f3f4f6',
+      backgroundColor: '#212121',
     },
     controlsInner: {
       maxWidth: '64rem',
@@ -78,9 +61,6 @@ export default function ClientComponent({
 
   return (
     <div style={styles.container}>
-      <div style={styles.header}>
-        <h2 style={styles.headerTitle}>AI Assistant</h2>
-      </div>
       
       <div style={styles.content}>
         <VoiceProvider

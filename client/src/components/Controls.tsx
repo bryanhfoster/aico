@@ -45,7 +45,6 @@ export default function Controls() {
     controlsWrapper: {
       padding: "1rem",
       backgroundColor: "var(--card-bg)",
-      border: "1px solid var(--border-color-50)",
       borderRadius: "9999px",
       display: "flex",
       alignItems: "center",
@@ -53,31 +52,30 @@ export default function Controls() {
     },
     formWrapper: {
       padding: "1rem",
-      backgroundColor: "var(--card-bg)",
-      border: "1px solid var(--border-color-50)",
-      borderRadius: "1rem",
+      backgroundColor: "#181818",
       display: "flex",
       flexDirection: "column",
       gap: "0.5rem",
       width: "100%",
       maxWidth: "20rem",
       pointerEvents: "auto",
-      zIndex: 9999   
+      zIndex: 9999  , 
+      borderRadius: "20px",
     },
     input: {
       padding: "0.5rem",
       borderRadius: "0.5rem",
-      border: "0.01rem solid black",
-      color: "black",
-      backgroundColor: "white"
+      color: "white",
+      backgroundColor: "#212121",
+      border: "1px solid #181818"
     },
     textarea: {
       padding: "0.5rem",
       borderRadius: "0.5rem",
-      border: "0.01rem solid black",
       minHeight: "4rem",
-      color: "black",
-      backgroundColor: "white"
+      color: "white",
+      backgroundColor: "#212121",
+      border: "1px solid #181818"
     },
     checkboxRow: {
       display: "flex",

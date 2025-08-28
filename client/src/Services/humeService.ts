@@ -21,17 +21,45 @@ type ChatSocket = {
 };
 const socketRegistry = new Map<string, ChatSocket>();
 
+// function getOrCreateSocket(conversationKey: string): ChatSocket {
+//   const existing = socketRegistry.get(conversationKey);
+//   const isClosed = existing && ((existing.socket as any)?.socket?.readyState === 3);
+//   if (!existing || isClosed) {
+//     const socket = client.empathicVoice.chat.connect();
+//     const entry: ChatSocket = { socket };
+//     socketRegistry.set(conversationKey, entry);
+//     return entry;
+//   }
+//   return existing;
+// }
+
 function getOrCreateSocket(conversationKey: string): ChatSocket {
   const existing = socketRegistry.get(conversationKey);
   const isClosed = existing && ((existing.socket as any)?.socket?.readyState === 3);
+
   if (!existing || isClosed) {
-    const socket = client.empathicVoice.chat.connect();
-    const entry: ChatSocket = { socket };
+    // ⬇ Try to restore chat group from memory/localStorage
+    const storedGroupId = localStorage.getItem(`hume_chat_group_id_${conversationKey}`);
+
+    const options: any = {};
+    if (storedGroupId) {
+      options.resumed_chat_group_id = storedGroupId;
+      console.debug("[Hume] Resuming chat group:", storedGroupId);
+    } else {
+      console.debug("[Hume] Starting new chat session");
+    }
+
+    // ⬇ Pass resume info into connect()
+    const socket = client.empathicVoice.chat.connect(options);
+
+    const entry: ChatSocket = { socket, chatGroupId: storedGroupId || undefined };
     socketRegistry.set(conversationKey, entry);
     return entry;
   }
+
   return existing;
 }
+
 
 function bindChatCapture(entry: ChatSocket) {
   if (entry.listenersBound) return;
@@ -206,7 +234,7 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
         try {
           // Reuse existing chat when available
           try {
-            const chatId = chatIdHint || entry.chatId || localStorage.getItem('hume_chat_id');
+            const chatId = chatIdHint || entry.chatId;
             const chatGroupId = localStorage.getItem('hume_chat_group_id');
             if (chatId) {
               // @ts-ignore
@@ -267,92 +295,176 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
   }
 };
 
-export const sendMessageToHume = async (messages: Array<{ role: 'user' | 'assistant' | 'system', content: string }>, conversationKey: string = 'default', chatIdHint?: string) => {
+// export const sendMessageToHume = async (messages: Array<{ role: 'user' | 'assistant' | 'system', content: string }>, conversationKey: string = 'default', chatIdHint?: string) => {
+//   try {
+//     const entry = getOrCreateSocket(conversationKey);
+//     const socket = entry.socket;
+//     bindChatCapture(entry);
+    
+//     return new Promise<HumeResponse>((resolve, reject) => {
+//       let fullResponse = '';
+//       let finished = false;
+//       let capturedId: string | undefined;
+//       let chatCaptured = false;
+      
+//       socket.on("message", (message) => {
+//         try {
+//           if (!chatCaptured) {
+//             const mm: any = message as any;
+//             const chatId = mm.chat_id ?? mm.chatId ?? mm.chat?.id ?? mm.chat?.chat_id ?? mm.conversation_id ?? mm.conversationId ?? mm.session?.chat_id ?? mm.session?.chatId;
+//             const chatGroupId = mm.chat_group_id ?? mm.chatGroupId ?? mm.chat?.group_id ?? mm.chat?.chat_group_id ?? mm.group_id ?? mm.groupId;
+//             if (chatId) {
+//               chatCaptured = true;
+//               rememberHumeChatId(String(chatId), chatGroupId ? String(chatGroupId) : undefined);
+//               console.debug('[Hume] Captured chat id from audio flow:', chatId, chatGroupId ? `(group ${chatGroupId})` : '');
+//               capturedId = String(chatId);
+//             }
+//           }
+//         } catch {}
+//         try {
+//           const mm: any = message as any;
+//           const cid = mm.chat_id ?? mm.chatId ?? mm.chat?.id ?? mm.chat?.chat_id ?? mm.conversation_id ?? mm.conversationId ?? mm.session?.chat_id ?? mm.session?.chatId;
+//           if (cid && !capturedId) capturedId = String(cid);
+//         } catch {}
+//         if (message.type === "assistant_message") {
+//           const text = message.message?.content || '';
+//           fullResponse += text;
+//         } else if (message.type === 'assistant_end') {
+//           if (!finished) {
+//             finished = true;
+//             // Background sync so history sidebar sees the new chat id
+//             try { syncChatsIntoLocalStorage(20); } catch {}
+//             resolve({ text: fullResponse, chatId: capturedId });
+//           }
+//         } else if (message.type === "error") {
+//           reject(new Error(message.message || 'Unknown error from Hume AI'));
+//         }
+//       });
+
+//       socket.on("error", (error) => {
+//         console.error('WebSocket error:', error);
+//         reject(error);
+//       });
+
+//       socket.tillSocketOpen().then(() => {
+//         // If we already have a known chatId (either captured earlier in this socket or from localStorage), we can optionally ensure session settings
+//         try {
+//           const knownChat = chatIdHint || entry.chatId || localStorage.getItem('hume_chat_id');
+//           const knownGroup = entry.chatGroupId || localStorage.getItem('hume_chat_group_id') || undefined;
+//           if (knownChat) {
+//             // @ts-ignore
+//             (socket as any).socket.send(JSON.stringify({ type: 'session_settings', chat_id: knownChat, ...(knownGroup ? { chat_group_id: knownGroup } : {}) }));
+//           }
+//         } catch {}
+//         const recentMessages = messages.slice(-6); // keep small context
+//         const last = recentMessages[recentMessages.length - 1];
+//         // Send limited prior assistant turns as assistant_input so the model has some immediate context
+//         const prior = recentMessages.slice(0, -1);
+//         if (prior.length > 0) {
+//           // Only send short assistant snippets; do NOT send unsupported message types
+//           for (const m of prior) {
+//             if (m.role === 'assistant' && m.content) {
+//               // @ts-ignore send assistant input
+//               (socket as any).socket.send(JSON.stringify({ type: 'assistant_input', text: String(m.content).slice(0, 200) }));
+//             }
+//           }
+//         }
+//         // Finally send the raw user input only (no context prefix)
+//         const userText = String(last?.content ?? '').trim();
+//         if (userText.length > 0) {
+//           socket.sendUserInput(userText);
+//         }
+//       }).catch(reject);
+//     });
+//   } catch (error) {
+//     console.error('Error calling Hume AI:', error);
+//     throw error;
+//   }
+// };
+
+
+
+export const sendMessageToHume = async (
+  messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
+  conversationKey: string = 'default',
+  chatGroupIdHint?: string
+) => {
   try {
     const entry = getOrCreateSocket(conversationKey);
     const socket = entry.socket;
     bindChatCapture(entry);
-    
+
     return new Promise<HumeResponse>((resolve, reject) => {
       let fullResponse = '';
       let finished = false;
-      let capturedId: string | undefined;
-      let chatCaptured = false;
-      
-      socket.on("message", (message) => {
+      let capturedChatId: string | undefined;
+
+      socket.on('message', (message: any) => {
         try {
-          if (!chatCaptured) {
-            const mm: any = message as any;
-            const chatId = mm.chat_id ?? mm.chatId ?? mm.chat?.id ?? mm.chat?.chat_id ?? mm.conversation_id ?? mm.conversationId ?? mm.session?.chat_id ?? mm.session?.chatId;
-            const chatGroupId = mm.chat_group_id ?? mm.chatGroupId ?? mm.chat?.group_id ?? mm.chat?.chat_group_id ?? mm.group_id ?? mm.groupId;
+          if (message.type === 'chat_metadata') {
+            const chatId = message.chat_id ?? message.chatId;
+            const chatGroupId = message.chat_group_id ?? message.chatGroupId;
+
             if (chatId) {
-              chatCaptured = true;
-              rememberHumeChatId(String(chatId), chatGroupId ? String(chatGroupId) : undefined);
-              console.debug('[Hume] Captured chat id from audio flow:', chatId, chatGroupId ? `(group ${chatGroupId})` : '');
-              capturedId = String(chatId);
+              capturedChatId = String(chatId);
+              rememberHumeChatId(capturedChatId, chatGroupId ? String(chatGroupId) : undefined);
+              console.debug('[Hume] Resumed session:', { chatId, chatGroupId });
+
+              // Now we can send the conversation context and user message
+              const recent = messages.slice(-6);
+              const last = recent[recent.length - 1];
+              const prior = recent.slice(0, -1);
+
+              for (const m of prior) {
+                if (m.role === 'assistant' && m.content) {
+                  (socket as any).socket.send(JSON.stringify({
+                    type: 'assistant_input',
+                    text: String(m.content).slice(0, 200),
+                  }));
+                }
+              }
+
+              const userText = String(last?.content ?? '').trim();
+              if (userText) {
+                socket.sendUserInput(userText);
+              }
             }
           }
-        } catch {}
-        try {
-          const mm: any = message as any;
-          const cid = mm.chat_id ?? mm.chatId ?? mm.chat?.id ?? mm.chat?.chat_id ?? mm.conversation_id ?? mm.conversationId ?? mm.session?.chat_id ?? mm.session?.chatId;
-          if (cid && !capturedId) capturedId = String(cid);
-        } catch {}
-        if (message.type === "assistant_message") {
-          const text = message.message?.content || '';
-          fullResponse += text;
-        } else if (message.type === 'assistant_end') {
-          if (!finished) {
-            finished = true;
-            // Background sync so history sidebar sees the new chat id
-            try { syncChatsIntoLocalStorage(20); } catch {}
-            resolve({ text: fullResponse, chatId: capturedId });
+
+          if (message.type === 'assistant_message') {
+            fullResponse += message.message?.content || '';
+          } else if (message.type === 'assistant_end') {
+            if (!finished) {
+              finished = true; syncChatsIntoLocalStorage(20);
+              resolve({ text: fullResponse, chatId: capturedChatId });
+            }
+          } else if (message.type === 'error') {
+            reject(new Error(message.message || 'Unknown error from Hume AI'));
           }
-        } else if (message.type === "error") {
-          reject(new Error(message.message || 'Unknown error from Hume AI'));
+        } catch (err) {
+          console.error('[Hume] Handling error:', err);
         }
       });
 
-      socket.on("error", (error) => {
-        console.error('WebSocket error:', error);
-        reject(error);
-      });
+      socket.on('error', reject);
 
       socket.tillSocketOpen().then(() => {
-        // If we already have a known chatId (either captured earlier in this socket or from localStorage), we can optionally ensure session settings
-        try {
-          const knownChat = chatIdHint || entry.chatId || localStorage.getItem('hume_chat_id');
-          const knownGroup = entry.chatGroupId || localStorage.getItem('hume_chat_group_id') || undefined;
-          if (knownChat) {
-            // @ts-ignore
-            (socket as any).socket.send(JSON.stringify({ type: 'session_settings', chat_id: knownChat, ...(knownGroup ? { chat_group_id: knownGroup } : {}) }));
-          }
-        } catch {}
-        const recentMessages = messages.slice(-6); // keep small context
-        const last = recentMessages[recentMessages.length - 1];
-        // Send limited prior assistant turns as assistant_input so the model has some immediate context
-        const prior = recentMessages.slice(0, -1);
-        if (prior.length > 0) {
-          // Only send short assistant snippets; do NOT send unsupported message types
-          for (const m of prior) {
-            if (m.role === 'assistant' && m.content) {
-              // @ts-ignore send assistant input
-              (socket as any).socket.send(JSON.stringify({ type: 'assistant_input', text: String(m.content).slice(0, 200) }));
-            }
-          }
-        }
-        // Finally send the raw user input only (no context prefix)
-        const userText = String(last?.content ?? '').trim();
-        if (userText.length > 0) {
-          socket.sendUserInput(userText);
-        }
+        // Use stored or hinted Chat Group ID for session resume
+        const knownChatGroupId = chatGroupIdHint || entry.chatGroupId || localStorage.getItem('hume_chat_group_id');
+        console.debug('[Hume] Opening connection with resumed_chat_group_id:', knownChatGroupId);
+
+        // Here, we should attach resumed_chat_group_id in handshake connection      — this part depends on how your socket connects
+        entry.setHandshakeParams?.({ resumed_chat_group_id: knownChatGroupId });
+
+        // If no prior session exists, this will simply create a new chat
       }).catch(reject);
     });
   } catch (error) {
-    console.error('Error calling Hume AI:', error);
+    console.error('Hume communication error:', error);
     throw error;
   }
 };
+
 
 export const startVoiceSession = async () => {
   return {
@@ -418,7 +530,6 @@ export async function fetchChatEvents(
   const all: HumeEvent[] = [];
   try {
     const iterator = await client.empathicVoice.chats.listChatEvents(chatId, { pageNumber: 0 });
-    console.log("iterator", JSON.stringify(iterator))
     for await (const ev of iterator) all.push(ev as HumeEvent);
   } catch (err: any) {
     if (err?.status === 404 || /404/.test(String(err?.message))) {

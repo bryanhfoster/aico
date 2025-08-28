@@ -159,11 +159,12 @@ const Messages = forwardRef<
     },
     message: {
       width: "80%",
-      backgroundColor: "#ffffff", // Adjust to match your card bg
-      border: "1px solid #e5e7eb", // Adjust to match your border color
+      backgroundColor: "#212121", // Adjust to match your card bg
       borderRadius: "0.75rem",
-      color: 'black',
+      color: 'white',
       fontSize: '1rem',
+      boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+      transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
     },
     userMessage: {
       marginLeft: "auto"

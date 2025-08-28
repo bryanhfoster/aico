@@ -107,13 +107,12 @@ export default function ChatBubble({
         return {
           icon: <FcInfo aria-hidden className="text-lg" />,
           audioIcon: null,
-          textColor: '#212529',
+          textColor: 'white',
           alignSelf: 'center' as const,
           bubbleStyle: {
             ...baseStyle,
             borderTopLeftRadius: '4px',
-            background: '#f8f9fa',
-            border: '1px solid #e9ecef',
+            background: '#181818',
             textAlign: 'center',
             maxWidth: '80%',
             margin: '4px auto'
@@ -124,7 +123,7 @@ export default function ChatBubble({
         return {
           icon: <FcCustomerSupport aria-hidden className="text-lg" />,
           audioIcon: <FaVolumeUp size={14} />,
-          textColor: '#212529',
+          textColor: 'white',
           overflowWrap: 'break-word',
           whiteSpace: 'pre-wrap',
           overflow: 'hidden',
@@ -132,8 +131,7 @@ export default function ChatBubble({
           bubbleStyle: {
             ...baseStyle,
             borderTopLeftRadius: '4px',
-            background: 'linear-gradient(135deg, #e9f5ff, #d0ebff)',
-            border: '1px solid #d0ebff',
+            background: '#181818',
             textAlign: 'left',
             marginRight: 'auto'
           }
@@ -143,13 +141,12 @@ export default function ChatBubble({
         return {
           icon: <FcBusinessman aria-hidden className="text-lg" />,
           audioIcon: <FaMicrophone size={14} />,
-          textColor: '#087f5b',
+          textColor: 'white',
           alignSelf: 'flex-end' as const,
           bubbleStyle: {
             ...baseStyle,
             borderTopRightRadius: '4px',
-            background: 'linear-gradient(135deg, #e6fcf5, #c3fae8)',
-            border: '1px solid #c3fae8',
+            background: '#181818',
             textAlign: 'right',
             marginLeft: 'auto'
           }

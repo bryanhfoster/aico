@@ -171,44 +171,19 @@ export default function ChatInput({
     >
       <div 
         style={{
-          position: 'relative',
-          display: 'flex',
-          alignItems: 'flex-end',
-          gap: '8px',
-          background: 'white',
-          borderRadius: '24px',
-          padding: '8px 16px',
-          boxShadow: isFocused 
-            ? '0 2px 12px rgba(0, 0, 0, 0.1)' 
-            : '0 1px 3px rgba(0, 0, 0, 0.08)',
-          border: `1px solid ${isFocused ? '#4dabf7' : '#e9ecef'}`,
-          transition: 'all 0.2s ease',
+        position: 'relative',
+        display: 'flex',
+        alignItems: 'flex-end',
+        gap: '8px',
+        background: '#181818',
+        borderRadius: '24px',
+        padding: '8px 16px',
+        boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+        transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+        transform: isFocused ? 'translateY(-2px)' : 'none',
+        zIndex: 1,
         }}
       >
-        {/* <button
-          type="button"
-          onClick={handleAttachmentClick}
-          disabled={disabled}
-          className="action-button"
-          style={{
-            background: 'transparent',
-            border: 'none',
-            borderRadius: '50%',
-            width: '36px',
-            height: '36px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            cursor: 'pointer',
-            color: '#495057',
-            transition: 'all 0.2s ease',
-            flexShrink: 0,
-          }}
-          title="Attach file"
-        >
-          <FiPaperclip size={18} />
-        </button> */}
-
         <div style={{ flex: 1, position: 'relative',}}>
           <textarea
             ref={inputRef}
@@ -232,7 +207,7 @@ export default function ChatInput({
               lineHeight: '1',
               textAlign: 'left',
 
-              color: '#212529',
+              color: 'white',
               padding: '16 0 0 0',
               background: 'transparent',
               overflowY: 'auto',
@@ -243,7 +218,7 @@ export default function ChatInput({
         </div>
 
         <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
-          <button
+          {/* <button
             type="button"
             onClick={handleEmojiClick}
             disabled={disabled}
@@ -265,7 +240,7 @@ export default function ChatInput({
             title="Add emoji"
           >
             <FiSmile size={18} />
-          </button>
+          </button> */}
 
           <AnimatePresence mode="wait">
             {message.trim() ? (
