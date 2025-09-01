@@ -5,13 +5,6 @@ const client = new HumeClient({
   apiKey: import.meta.env.VITE_HUME_API_KEY,
 });
 
-function rememberHumeChatId(chatId: string, chatGroupId?: string) {
-  try {
-    localStorage.setItem('hume_chat_id', chatId);
-    if (chatGroupId) localStorage.setItem('hume_chat_group_id', chatGroupId);
-  } catch {}
-}
-
 // Persistent socket registry keyed by conversation
 type ChatSocket = {
   socket: ReturnType<typeof client.empathicVoice.chat.connect>;
@@ -21,35 +14,22 @@ type ChatSocket = {
 };
 const socketRegistry = new Map<string, ChatSocket>();
 
-// function getOrCreateSocket(conversationKey: string): ChatSocket {
-//   const existing = socketRegistry.get(conversationKey);
-//   const isClosed = existing && ((existing.socket as any)?.socket?.readyState === 3);
-//   if (!existing || isClosed) {
-//     const socket = client.empathicVoice.chat.connect();
-//     const entry: ChatSocket = { socket };
-//     socketRegistry.set(conversationKey, entry);
-//     return entry;
-//   }
-//   return existing;
-// }
-
-function getOrCreateSocket(conversationKey: string): ChatSocket {
+function getOrCreateSocket(conversationKey: string, chatGroupIdHint?: string): ChatSocket {
   const existing = socketRegistry.get(conversationKey);
   const isClosed = existing && ((existing.socket as any)?.socket?.readyState === 3);
 
   if (!existing || isClosed) {
-    // ⬇ Try to restore chat group from memory/localStorage
-    const storedGroupId = localStorage.getItem(`hume_chat_group_id_${conversationKey}`);
+    const storedGroupId =
+      chatGroupIdHint || localStorage.getItem(`hume_chat_group_id_${conversationKey}`);
 
     const options: any = {};
     if (storedGroupId) {
-      options.resumed_chat_group_id = storedGroupId;
+      options.resumedChatGroupId = storedGroupId;
       console.debug("[Hume] Resuming chat group:", storedGroupId);
     } else {
       console.debug("[Hume] Starting new chat session");
     }
 
-    // ⬇ Pass resume info into connect()
     const socket = client.empathicVoice.chat.connect(options);
 
     const entry: ChatSocket = { socket, chatGroupId: storedGroupId || undefined };
@@ -59,7 +39,6 @@ function getOrCreateSocket(conversationKey: string): ChatSocket {
 
   return existing;
 }
-
 
 function bindChatCapture(entry: ChatSocket) {
   if (entry.listenersBound) return;
@@ -73,7 +52,7 @@ function bindChatCapture(entry: ChatSocket) {
         if (chatId) {
           entry.chatId = String(chatId);
           entry.chatGroupId = chatGroupId ? String(chatGroupId) : undefined;
-          rememberHumeChatId(entry.chatId, entry.chatGroupId);
+          // rememberHumeChatGroup(entry.chatId, entry.chatGroupId);
           console.debug('[Hume] Captured chat id (persistent):', entry.chatId);
         }
       }
@@ -85,6 +64,7 @@ export interface HumeResponse {
   text: string;
   audioData?: ArrayBuffer;
   chatId?: string;
+  chatGroupId?: string;
 }
 
 function createWavHeader(dataLength: number): Uint8Array {
@@ -144,7 +124,6 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
     return new Promise((resolve, reject) => {
       let fullResponse = '';
       let audioChunks: Uint8Array[] = [];
-      let isFirstMessage = true;
       let chatCaptured = false;
       let capturedId: string | undefined;
       
@@ -156,7 +135,7 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
             const chatGroupId = mm.chat_group_id ?? mm.chatGroupId ?? mm.chat?.group_id ?? mm.chat?.chat_group_id ?? mm.group_id ?? mm.groupId;
             if (chatId) {
               chatCaptured = true;
-              rememberHumeChatId(String(chatId), chatGroupId ? String(chatGroupId) : undefined);
+              // rememberHumeChatId(String(chatId), chatGroupId ? String(chatGroupId) : undefined);
               console.debug('[Hume] Captured chat id from audio flow:', chatId, chatGroupId ? `(group ${chatGroupId})` : '');
               capturedId = String(chatId);
             }
@@ -187,8 +166,6 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
           console.log('Received assistant_end with audio chunks:', audioChunks.length);
           
           if (audioChunks.length === 0) {
-            // Background sync: make sure latest chat appears in sidebar list
-            try { syncChatsIntoLocalStorage(20); } catch {}
             resolve({ text: fullResponse, chatId: capturedId });
             return;
           }
@@ -217,8 +194,6 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
             audioData: finalAudioData.buffer,
             chatId: capturedId,
           });
-          // Background sync: make sure latest chat appears in sidebar list
-          try { syncChatsIntoLocalStorage(20); } catch {}
         }
         else if (message.type === "error") {
           reject(new Error(message.message || 'Unknown error from Hume AI'));
@@ -295,102 +270,13 @@ export const sendAudioToHume = async (audioBlob: Blob, conversationHistory: Arra
   }
 };
 
-// export const sendMessageToHume = async (messages: Array<{ role: 'user' | 'assistant' | 'system', content: string }>, conversationKey: string = 'default', chatIdHint?: string) => {
-//   try {
-//     const entry = getOrCreateSocket(conversationKey);
-//     const socket = entry.socket;
-//     bindChatCapture(entry);
-    
-//     return new Promise<HumeResponse>((resolve, reject) => {
-//       let fullResponse = '';
-//       let finished = false;
-//       let capturedId: string | undefined;
-//       let chatCaptured = false;
-      
-//       socket.on("message", (message) => {
-//         try {
-//           if (!chatCaptured) {
-//             const mm: any = message as any;
-//             const chatId = mm.chat_id ?? mm.chatId ?? mm.chat?.id ?? mm.chat?.chat_id ?? mm.conversation_id ?? mm.conversationId ?? mm.session?.chat_id ?? mm.session?.chatId;
-//             const chatGroupId = mm.chat_group_id ?? mm.chatGroupId ?? mm.chat?.group_id ?? mm.chat?.chat_group_id ?? mm.group_id ?? mm.groupId;
-//             if (chatId) {
-//               chatCaptured = true;
-//               rememberHumeChatId(String(chatId), chatGroupId ? String(chatGroupId) : undefined);
-//               console.debug('[Hume] Captured chat id from audio flow:', chatId, chatGroupId ? `(group ${chatGroupId})` : '');
-//               capturedId = String(chatId);
-//             }
-//           }
-//         } catch {}
-//         try {
-//           const mm: any = message as any;
-//           const cid = mm.chat_id ?? mm.chatId ?? mm.chat?.id ?? mm.chat?.chat_id ?? mm.conversation_id ?? mm.conversationId ?? mm.session?.chat_id ?? mm.session?.chatId;
-//           if (cid && !capturedId) capturedId = String(cid);
-//         } catch {}
-//         if (message.type === "assistant_message") {
-//           const text = message.message?.content || '';
-//           fullResponse += text;
-//         } else if (message.type === 'assistant_end') {
-//           if (!finished) {
-//             finished = true;
-//             // Background sync so history sidebar sees the new chat id
-//             try { syncChatsIntoLocalStorage(20); } catch {}
-//             resolve({ text: fullResponse, chatId: capturedId });
-//           }
-//         } else if (message.type === "error") {
-//           reject(new Error(message.message || 'Unknown error from Hume AI'));
-//         }
-//       });
-
-//       socket.on("error", (error) => {
-//         console.error('WebSocket error:', error);
-//         reject(error);
-//       });
-
-//       socket.tillSocketOpen().then(() => {
-//         // If we already have a known chatId (either captured earlier in this socket or from localStorage), we can optionally ensure session settings
-//         try {
-//           const knownChat = chatIdHint || entry.chatId || localStorage.getItem('hume_chat_id');
-//           const knownGroup = entry.chatGroupId || localStorage.getItem('hume_chat_group_id') || undefined;
-//           if (knownChat) {
-//             // @ts-ignore
-//             (socket as any).socket.send(JSON.stringify({ type: 'session_settings', chat_id: knownChat, ...(knownGroup ? { chat_group_id: knownGroup } : {}) }));
-//           }
-//         } catch {}
-//         const recentMessages = messages.slice(-6); // keep small context
-//         const last = recentMessages[recentMessages.length - 1];
-//         // Send limited prior assistant turns as assistant_input so the model has some immediate context
-//         const prior = recentMessages.slice(0, -1);
-//         if (prior.length > 0) {
-//           // Only send short assistant snippets; do NOT send unsupported message types
-//           for (const m of prior) {
-//             if (m.role === 'assistant' && m.content) {
-//               // @ts-ignore send assistant input
-//               (socket as any).socket.send(JSON.stringify({ type: 'assistant_input', text: String(m.content).slice(0, 200) }));
-//             }
-//           }
-//         }
-//         // Finally send the raw user input only (no context prefix)
-//         const userText = String(last?.content ?? '').trim();
-//         if (userText.length > 0) {
-//           socket.sendUserInput(userText);
-//         }
-//       }).catch(reject);
-//     });
-//   } catch (error) {
-//     console.error('Error calling Hume AI:', error);
-//     throw error;
-//   }
-// };
-
-
-
 export const sendMessageToHume = async (
   messages: Array<{ role: 'user' | 'assistant' | 'system'; content: string }>,
   conversationKey: string = 'default',
   chatGroupIdHint?: string
 ) => {
   try {
-    const entry = getOrCreateSocket(conversationKey);
+    const entry = getOrCreateSocket(conversationKey, chatGroupIdHint);
     const socket = entry.socket;
     bindChatCapture(entry);
 
@@ -398,35 +284,36 @@ export const sendMessageToHume = async (
       let fullResponse = '';
       let finished = false;
       let capturedChatId: string | undefined;
+      let messagesSent = false;
 
-      socket.on('message', (message: any) => {
+      const messageHandler = (message: any) => {
         try {
+          // Capture identifiers from any incoming message
+          const mm: any = message;
+          const chatId = mm.chat_id ?? mm.chatId ?? mm.chat?.id ?? mm.chat?.chat_id ?? mm.conversation_id ?? mm.conversationId ?? mm.session?.chat_id ?? mm.session?.chatId;
+          const chatGroupIdGeneric = mm.chat_group_id ?? mm.chatGroupId ?? mm.chat?.group_id ?? mm.chat?.chat_group_id ?? mm.group_id ?? mm.groupId;
+          if (chatId && !capturedChatId) {
+            capturedChatId = String(chatId);
+            console.debug('[Hume] Captured chat id:', capturedChatId);
+          }
+          if (chatGroupIdGeneric && !entry.chatGroupId) {
+            entry.chatGroupId = String(chatGroupIdGeneric);
+            localStorage.setItem(`hume_chat_group_id_${conversationKey}`, entry.chatGroupId);
+            console.debug('[Hume] Captured chat group id:', entry.chatGroupId);
+          }
+
           if (message.type === 'chat_metadata') {
-            const chatId = message.chat_id ?? message.chatId;
             const chatGroupId = message.chat_group_id ?? message.chatGroupId;
 
-            if (chatId) {
-              capturedChatId = String(chatId);
-              rememberHumeChatId(capturedChatId, chatGroupId ? String(chatGroupId) : undefined);
-              console.debug('[Hume] Resumed session:', { chatId, chatGroupId });
-
-              // Now we can send the conversation context and user message
-              const recent = messages.slice(-6);
-              const last = recent[recent.length - 1];
-              const prior = recent.slice(0, -1);
-
-              for (const m of prior) {
-                if (m.role === 'assistant' && m.content) {
-                  (socket as any).socket.send(JSON.stringify({
-                    type: 'assistant_input',
-                    text: String(m.content).slice(0, 200),
-                  }));
-                }
-              }
-
-              const userText = String(last?.content ?? '').trim();
-              if (userText) {
-                socket.sendUserInput(userText);
+            if (chatGroupId) {
+              entry.chatGroupId = String(chatGroupId);
+              console.debug('[Hume] Captured chat group (persistent):', entry.chatGroupId);
+              localStorage.setItem(`hume_chat_group_id_${conversationKey}`, chatGroupId);
+              
+              // Send messages if we haven't already
+              if (!messagesSent) {
+                messagesSent = true;
+                sendMessagesImmediately();
               }
             }
           }
@@ -435,29 +322,84 @@ export const sendMessageToHume = async (
             fullResponse += message.message?.content || '';
           } else if (message.type === 'assistant_end') {
             if (!finished) {
-              finished = true; syncChatsIntoLocalStorage(20);
-              resolve({ text: fullResponse, chatId: capturedChatId });
+              finished = true;
+              // Clean up the message handler
+              safeOff(socket, 'message', messageHandler);
+              safeOff(socket, 'error', errorHandler);
+              resolve({ text: fullResponse, chatId: capturedChatId, chatGroupId: entry.chatGroupId });
             }
           } else if (message.type === 'error') {
+            safeOff(socket, 'message', messageHandler);
+            safeOff(socket, 'error', errorHandler);
             reject(new Error(message.message || 'Unknown error from Hume AI'));
           }
         } catch (err) {
           console.error('[Hume] Handling error:', err);
         }
-      });
+      };
 
-      socket.on('error', reject);
+      const errorHandler = (error: any) => {
+        safeOff(socket, 'message', messageHandler);
+        reject(error);
+      };
+
+      function sendMessagesImmediately() {
+        try {
+          // Send conversation context (recent messages)
+          const recent = messages.slice(-6);
+          const last = recent[recent.length - 1];
+          const prior = recent.slice(0, -1);
+
+          for (const m of prior) {
+            if (m.role === 'assistant' && m.content) {
+              (socket as any).socket.send(JSON.stringify({
+                type: 'assistant_input',
+                text: String(m.content).slice(0, 200),
+              }));
+            }
+          }
+
+          // Send the user's message
+          const userText = String(last?.content ?? '').trim();
+          if (userText) {
+            socket.sendUserInput(userText);
+          }
+        } catch (err) {
+          console.error('[Hume] Error sending messages:', err);
+          safeOff(socket, 'message', messageHandler);
+          safeOff(socket, 'error', errorHandler);
+          reject(err);
+        }
+      }
+
+      // Add our specific message handler for this request
+      socket.on('message', messageHandler);
+      socket.on('error', errorHandler);
 
       socket.tillSocketOpen().then(() => {
-        // Use stored or hinted Chat Group ID for session resume
-        const knownChatGroupId = chatGroupIdHint || entry.chatGroupId || localStorage.getItem('hume_chat_group_id');
-        console.debug('[Hume] Opening connection with resumed_chat_group_id:', knownChatGroupId);
+        // Check if we already have a chat group ID (existing conversation)
+        const existingChatGroupId = chatGroupIdHint || entry.chatGroupId || localStorage.getItem(`hume_chat_group_id_${conversationKey}`);
+        
+        if (existingChatGroupId) {
+          console.debug('[Hume] Using existing chat group ID:', existingChatGroupId);
+          // Send messages immediately for existing conversations
+          if (!messagesSent) {
+            messagesSent = true;
+            sendMessagesImmediately();
+          }
+        }
+        // Also send immediately for new conversations; do not wait for chat_metadata
+        if (!messagesSent) {
+          console.debug('[Hume] No existing chat group; sending immediately for new conversation');
+          messagesSent = true;
+          sendMessagesImmediately();
+        }
 
-        // Here, we should attach resumed_chat_group_id in handshake connection      — this part depends on how your socket connects
-        entry.setHandshakeParams?.({ resumed_chat_group_id: knownChatGroupId });
-
-        // If no prior session exists, this will simply create a new chat
-      }).catch(reject);
+      }).catch((error) => {
+        safeOff(socket, 'message', messageHandler);
+        safeOff(socket, 'error', errorHandler);
+        reject(error);
+      });
     });
   } catch (error) {
     console.error('Hume communication error:', error);
@@ -465,12 +407,11 @@ export const sendMessageToHume = async (
   }
 };
 
-
-export const startVoiceSession = async () => {
-  return {
-    sessionId: 'your-session-id',
-  };
-};
+function safeOff(socket: any, event: string, handler: any) {
+  if (socket.off) {
+    socket.off(event, handler);
+  }
+}
 
 export const processVoiceInput = async (audioData: Blob) => {
   try {
@@ -522,220 +463,82 @@ export type HumeEvent = ReturnChatEvent & {
   created_at?: string;
 };
 
-/** Fetch all chat events using SDK async iterator; returns oldest->newest */
-export async function fetchChatEvents(
-  chatId: string,
-  _opts: { page_size?: number; max_pages?: number; ascending_order?: boolean } = {}
-) {
-  const all: HumeEvent[] = [];
-  try {
-    const iterator = await client.empathicVoice.chats.listChatEvents(chatId, { pageNumber: 0 });
-    for await (const ev of iterator) all.push(ev as HumeEvent);
-  } catch (err: any) {
-    if (err?.status === 404 || /404/.test(String(err?.message))) {
-      const e = new Error('HUME_NOT_FOUND');
-      (e as any).status = 404;
-      throw e;
-    }
-    throw err;
-  }
-  const getTs = (e: HumeEvent) => {
-    const v = (e as any).timestamp ?? (e as any).created_at;
-    return typeof v === 'string' ? Date.parse(v) : (typeof v === 'number' ? v : 0);
-  };
-  all.sort((a, b) => getTs(a) - getTs(b));
-  return all;
-}
-
 // Optional: fetch all events for a chat group (aggregate from chats API)
-export async function fetchChatGroupEvents(chatGroupId: string) {
-  // 1) List recent chats and filter by group id
-  const listed: any = await listChats(0, 50, false);
-  let items: any[] = (listed as any)?.items ?? (listed as any)?.chats ?? [];
-  if ((!items || items.length === 0) && typeof (listed as any)?.[Symbol.asyncIterator] === 'function') {
-    // Some SDK versions return an async iterator
-    items = [];
-    let count = 0;
-    for await (const c of (listed as AsyncIterable<any>)) {
-      items.push(c);
-      count++;
-      if (count >= 50) break;
-    }
-  }
-  const inGroup = items.filter((c) => {
-    const gid = (c as any).chat_group_id ?? (c as any).chatGroupId;
-    return String(gid || '') === String(chatGroupId);
+export async function fetchConversationByGroup(groupId: string) {
+  // 1. Get the group and its chats
+  const groupResponse = await client.empathicVoice.chatGroups.getChatGroup(groupId, {
+    pageNumber: 0,
+    pageSize: 100,
+    ascendingOrder: true
   });
 
-  // 2) Fetch events for each chat and merge
-  const all: HumeEvent[] = [];
-  for (const c of inGroup) {
-    const cid = (c as any).chat_id ?? (c as any).chatId;
-    if (!cid) continue;
-    try {
-      const evs = await fetchChatEvents(String(cid), { ascending_order: true });
-      all.push(...(evs as HumeEvent[]));
-    } catch (e) {
-      console.warn('Failed fetching events for chat in group', cid, e);
+  const chats = groupResponse.chatsPage ?? [];
+  const allEvents: any[] = [];
+
+  // 2. Loop over each chat and fetch its events
+  for (const chat of chats) {
+    if (!chat.id) continue;
+
+    const eventsIterator = await client.empathicVoice.chats.listChatEvents(chat.id, {
+      pageSize: 100,
+      ascendingOrder: true
+    });
+
+    for await (const ev of eventsIterator) {
+      allEvents.push(ev);
     }
   }
-  // 3) Sort by timestamp (oldest->newest)
-  const getTs = (e: HumeEvent) => {
-    const v = (e as any).timestamp ?? (e as any).created_at;
-    return typeof v === 'string' ? Date.parse(v) : (typeof v === 'number' ? v : 0);
-  };
-  all.sort((a, b) => getTs(a) - getTs(b));
-  return all;
+
+
+  function formatConversation(events: any[]) {
+    return events
+      .filter(ev => ["USER_MESSAGE", "AGENT_MESSAGE"].includes(ev.type))
+      .map(ev => ({
+        role: ev.role,
+        text: ev.messageText ?? "",
+        timestamp: ev.timestamp
+      }));
+  }
+  const transcript = formatConversation(allEvents);
+
+  allEvents.sort((a, b) => {
+    const tA = typeof a.created_at === "string" ? Date.parse(a.created_at) : (a.created_at ?? 0);
+    const tB = typeof b.created_at === "string" ? Date.parse(b.created_at) : (b.created_at ?? 0);
+    return tA - tB;
+  });
+  
+  console.log("transcript", transcript);
+  return transcript;
 }
 
-export const MESSAGE_EVENT_TYPES = new Set(["USER_MESSAGE", "AGENT_MESSAGE", "MESSAGE", "TEXT_MESSAGE"]);
-
-export function mapEventsToMessages(events: HumeEvent[]) {
-  return events
-    .map((ev) => {
-      const msg = (ev as any).message;
-      const contentRaw = (ev as any).messageText ?? (ev as any).text ?? msg?.content ?? msg?.text ?? '';
-      const roleRaw = (ev as any).role ?? msg?.role ?? (ev as any).type ?? '';
-      const ts = (ev as any).timestamp ?? (ev as any).created_at ?? msg?.created_at ?? Date.now();
-      let text = String(contentRaw ?? '').trim();
-      if (!text) return null;
-
-      const roleLc = String(roleRaw || '').toLowerCase();
-      let role: 'user' | 'agent' | 'system' = roleLc.includes('user') ? 'user' : roleLc.includes('assistant') || roleLc.includes('agent') ? 'agent' : 'system';
-      if (role === 'system') return null; // drop system/meta events
-
-      // Drop known meta markers or VAD/segment-like content quickly
-      const combinedType = String((ev as any).type ?? (ev as any).event_type ?? msg?.type ?? '').toLowerCase();
-      if (combinedType.includes('vad') || combinedType.includes('segment') || combinedType.includes('system')) return null;
-
-      // Strip simple XML/HTML-like tags and collapse whitespace
-      text = text.replace(/<[^>]+>/g, ' ').replace(/[\r\n\t]+/g, ' ').replace(/\s{2,}/g, ' ').trim();
-
-      // Heuristic: if the text is mostly digits/symbols (>70% non-letters), consider it telemetry and drop
-      const letters = (text.match(/[A-Za-z]/g) || []).length;
-      const nonLetters = Math.max(text.length - letters, 0);
-      if (text.length > 0 && nonLetters > letters * 2.5) return null;
-
-      // Truncate extremely long payloads to avoid UI noise
-      const MAX_LEN = 1200;
-      if (text.length > MAX_LEN) text = text.slice(0, MAX_LEN) + ' …';
-
-      const id = String((ev as any).id ?? (ev as any).event_id ?? (ev as any).eventId ?? (msg?.id ?? msg?.event_id ?? msg?.eventId ?? crypto.randomUUID()));
-      return { id, role: role as 'user' | 'agent', text, timestamp: new Date(ts) };
-    })
-    .filter(Boolean);
+export interface StoredChat {
+  chat_group_id: string;
+  name?: string;
+  created_at?: string;
+  updated_at?: string;
 }
 
-/** Sync latest chats list into localStorage 'hume_chats' (IDs only) */
-export async function syncChatsIntoLocalStorage(limit = 20) {
+export async function listStoredChats() {
   try {
-    const existingRaw = localStorage.getItem('hume_chats');
-    const existing: Array<{ chat_id: string; chat_group_id?: string; updated_at: number | string }> = existingRaw ? JSON.parse(existingRaw) : [];
-    const coerceTs = (v: any) => typeof v === 'number' ? v : (typeof v === 'string' ? Date.parse(v) : Date.now());
+    const response = await client.empathicVoice.chats.listChats({
+      pageNumber: 0,
+      pageSize: 10,
+      ascendingOrder: false,
+    });
 
-    // Merge existing and new, then collapse to most recent per chat_group_id (fallback to chat_id)
-    const mapped = await listChats(0, limit, false);
-    const data: any = mapped;
-    // Support both object responses and async iterators from the SDK
-    let items: any[] = (data as any)?.items ?? (data as any)?.chats ?? [];
-    if ((!items || items.length === 0) && typeof (data as any)?.[Symbol.asyncIterator] === 'function') {
-      try {
-        items = [];
-        let count = 0;
-        for await (const c of data as AsyncIterable<any>) {
-          items.push(c);
-          count++;
-          if (count >= limit) break;
-        }
-      } catch (iterErr) {
-        console.warn('Failed iterating chats list; falling back to empty list', iterErr);
-        items = [];
-      }
-    }
-    console.debug('[Hume] listChats items count:', Array.isArray(items) ? items.length : 0);
-    const merged = [...existing, ...items.map((c) => ({
-      chat_id: (c as any).chat_id ?? (c as any).chatId,
-      chat_group_id: (c as any).chat_group_id ?? (c as any).chatGroupId,
-      updated_at:
-        (c as any).updated_at ?? (c as any).updatedAt ??
-        (c as any).ended_at ?? (c as any).endedAt ??
-        (c as any).last_event_at ?? (c as any).lastEventAt ??
-        (c as any).created_at ?? (c as any).createdAt ?? new Date().toISOString(),
-    }))];
-
-    const groups = new Map<string, { chat_id: string; chat_group_id?: string; updated_at: number }>();
-    for (const c of merged) {
-      const key = (c as any).chat_group_id || (c as any).chat_id;
-      const ts = coerceTs((c as any).updated_at);
-      const prev = groups.get(key);
-      if (!prev || ts > prev.updated_at) {
-        groups.set(key, { chat_id: (c as any).chat_id, chat_group_id: (c as any).chat_group_id, updated_at: ts });
-      }
-    }
-    const updated = Array.from(groups.values()).sort((a,b) => b.updated_at - a.updated_at).slice(0, limit);
-    localStorage.setItem('hume_chats', JSON.stringify(updated));
-    return updated;
-  } catch (e) {
-    console.warn('Failed syncing hume_chats', e);
+    // Each chat contains chatGroupId, timestamps, etc.
+    // You can normalize them into your StoredChat type.
+    return response.data.map(chat => ({
+      id: chat.chatGroupId, // group is what you want for resuming
+      chatId: chat.id,      // individual chat instance if needed
+      status: chat.status,
+      startTimestamp: chat.startTimestamp,
+      endTimestamp: chat.endTimestamp,
+      eventCount: chat.eventCount,
+    }));
+  } catch (err) {
+    console.error("Failed to fetch chats from Hume:", err);
     return [];
-  }
-}
-
-// ---- Stored Chats (chat_id + name) helpers ----
-export type StoredChat = { chat_id: string; name: string; updated_at: number; chat_group_id?: string };
-
-const STORED_CHATS_KEY = 'stored_chats';
-
-export function listStoredChats(limit = 50): StoredChat[] {
-  try {
-    const raw = localStorage.getItem(STORED_CHATS_KEY);
-    const arr: StoredChat[] = raw ? JSON.parse(raw) : [];
-    return arr.slice(0, limit);
-  } catch {
-    return [];
-  }
-}
-
-// export function upsertStoredChat(chat_id: string, name: string, chat_group_id?: string) {
-//   try {
-//     const now = Date.now();
-//     const raw = localStorage.getItem(STORED_CHATS_KEY);
-//     const arr: StoredChat[] = raw ? JSON.parse(raw) : [];
-//     const idx = arr.findIndex((c) => c.chat_id === chat_id);
-//     const item: StoredChat = { chat_id, name: name?.trim() || `Chat ${chat_id.slice(0,6)}`, updated_at: now, ...(chat_group_id ? { chat_group_id } : {}) };
-//     if (idx >= 0) arr[idx] = { ...arr[idx], ...item };
-//     else arr.unshift(item);
-//     arr.sort((a,b) => b.updated_at - a.updated_at);
-//     localStorage.setItem(STORED_CHATS_KEY, JSON.stringify(arr.slice(0, 200)));
-//   } catch {}
-// }
-
-export function upsertStoredChat(chat_id: string, name: string, chat_group_id?: string) {
-  try {
-    const now = Date.now();
-    const raw = localStorage.getItem(STORED_CHATS_KEY);
-    let arr: StoredChat[] = raw ? JSON.parse(raw) : [];
-    
-    // Remove any existing entries with the same chat_id to prevent duplicates
-    arr = arr.filter(c => c.chat_id !== chat_id);
-    
-    // Create new chat entry
-    const item: StoredChat = { 
-      chat_id, 
-      name: name?.trim() || `Chat ${chat_id.slice(0,6)}`, 
-      updated_at: now, 
-      ...(chat_group_id ? { chat_group_id } : {}) 
-    };
-    
-    // Add to beginning of array (most recent first)
-    arr.unshift(item);
-    
-    // Keep only unique chat_ids and limit to 200 most recent
-    const uniqueChats = Array.from(new Map(arr.map(chat => [chat.chat_id, chat])).values());
-    
-    localStorage.setItem(STORED_CHATS_KEY, JSON.stringify(uniqueChats.slice(0, 200)));
-  } catch (e) {
-    console.warn('Failed to upsert chat', e);
   }
 }
 
@@ -753,71 +556,6 @@ export function deriveChatNameFromEvents(events: HumeEvent[], chatId?: string): 
   } catch {}
   return `Chat ${chatId ? chatId.slice(0, 6) : ''}`.trim();
 }
-
-/** Resume a previous session by binding chat_id to the active WebSocket and signaling resume */
-export async function resumeChat(chatId: string, conversationKey: string = 'default') {
-  const entry = getOrCreateSocket(conversationKey);
-  const socket = entry.socket;
-  bindChatCapture(entry);
-  await socket.tillSocketOpen();
-  try {
-    // Inform server to attach to prior chat
-    // @ts-ignore
-    (socket as any).socket.send(JSON.stringify({ type: 'session_settings', chat_id: chatId }));
-    // Optional: explicitly signal resume per docs (emits RESUME_ONSET)
-    // @ts-ignore
-    ;(socket as any).socket.send(JSON.stringify({ type: 'resume_assistant_message' }));
-  } catch (e) {
-    console.warn('Failed to resume chat', e);
-    throw e;
-  }
-  // Remember for future sends
-  entry.chatId = chatId;
-  rememberHumeChatId(chatId, entry.chatGroupId);
-  return true;
-}
-// --- New helpers: raw events, transcript, conversation history, and resume ---
-
-/** Return raw events for a chat, ordered oldest->newest */
-export async function getRawChatEvents(chatId: string) {
-  return fetchChatEvents(chatId, { ascending_order: true });
-}
-
-/** Build a simple transcript string from chat events (User/Assistant turns) */
-export async function getChatTranscript(chatId: string) {
-  const events = await fetchChatEvents(chatId, { ascending_order: true });
-  const lines: string[] = [];
-  for (const ev of events) {
-    const t = (ev as any).type;
-    if (t === 'USER_MESSAGE' || t === 'AGENT_MESSAGE') {
-      const role = (ev as any).role === 'USER' ? 'User' : 'Assistant';
-      const timestamp = new Date((ev as any).timestamp ?? Date.now()).toLocaleString();
-      const text = (ev as any).messageText ?? (ev as any).text ?? (ev as any).message?.content ?? '';
-      if (text) lines.push(`[${timestamp}] ${role}: ${text}`);
-    }
-  }
-  return lines.join('\n');
-}
-
-/** Aggregate messages across a chat group (multiple sessions) */
-export async function getConversationHistory(chatGroupId: string) {
-  const events = await fetchChatGroupEvents(chatGroupId);
-  return mapEventsToMessages(events);
-}
-
-/** Fetch chat metadata (e.g., chat_group_id) via SDK */
-export async function getChatMetadata(chatId: string): Promise<{ chat_id: string; chat_group_id?: string } | null> {
-  try {
-    const meta: any = await client.empathicVoice.chats.getChat(chatId as any);
-    const chat_id = meta?.chat_id ?? meta?.chatId;
-    const chat_group_id = meta?.chat_group_id ?? meta?.chatGroupId;
-    return { chat_id, chat_group_id };
-  } catch (e) {
-    console.warn('Failed to get chat metadata', e);
-    return null;
-  }
-}
-
 
 export const setDynamicVariable = async (name: string, value: string) => {
   try {

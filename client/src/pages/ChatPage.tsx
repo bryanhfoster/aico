@@ -5,10 +5,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { FiPlus, FiX, FiMaximize2, FiMinimize2, FiPhone } from 'react-icons/fi'
 import { 
-  sendAudioToHume, sendMessageToHume, fetchChatEvents, mapEventsToMessages, 
-  syncChatsIntoLocalStorage, resumeChat, getChatTranscript, getConversationHistory, 
-  getChatMetadata, listStoredChats, upsertStoredChat, deriveChatNameFromEvents, 
-  setDynamicVariable, getAudioContructions 
+  sendAudioToHume, sendMessageToHume, listStoredChats, getAudioContructions, 
+  fetchConversationByGroup,
 } from '../Services/humeService'
 import { useNavigate } from 'react-router-dom'
 
@@ -27,7 +25,7 @@ type Conversation = {
   messages: Message[];
   createdAt: Date;
   updatedAt: Date;
-  humeChatId?: string;
+  humeChatGroupId?: string;
 };
 
 function ChatPage() {
@@ -64,6 +62,41 @@ function ChatPage() {
       const conv = conversations.find(c => c.id === currentConversationId);
       return conv ? conv.messages : [];
     }, [conversations, currentConversationId]);
+
+
+    const [chatGroups, setChatGroups] = useState<HumeChatGroup[]>([]);
+
+    useEffect(() => {
+      async function fetchGroups() {
+        try {
+          const groups = await listStoredChats(); // now async
+          console.log("Fetched chat groups:", groups);
+          // Deduplicate by id, keep the entry with the latest timestamp
+          const byId = new Map<string, any>();
+          for (const g of groups) {
+            const current = byId.get(g.id);
+            const gTime = (g.endTimestamp ?? g.startTimestamp ?? 0) as number;
+            const cTime = current ? (current.endTimestamp ?? current.startTimestamp ?? 0) : -Infinity;
+            if (!current || gTime > cTime) {
+              byId.set(g.id, g);
+            }
+          }
+          // Optional: sort by latest timestamp desc for display consistency
+          const uniqueLatest = Array.from(byId.values()).sort(
+            (a, b) => ((b.endTimestamp ?? b.startTimestamp ?? 0) as number) - ((a.endTimestamp ?? a.startTimestamp ?? 0) as number)
+          );
+          setChatGroups(uniqueLatest);
+        } catch (e) {
+          console.error("Failed to load chat groups:", e);
+        }
+      }
+      fetchGroups();
+    }, []);
+
+
+
+
+
   
     // Persist conversations across refresh
     useEffect(() => {
@@ -114,7 +147,7 @@ function ChatPage() {
             content: m.text
           }));
         
-        const response = await sendAudioToHume(audioBlob, conversationHistory, conversation.humeChatId, currentConversationId);
+        const response = await sendAudioToHume(audioBlob, conversationHistory, conversation.humeChatGroupId, currentConversationId);
         
         // Wrap audio playback in a Promise
         await new Promise<void>((resolve) => {
@@ -171,7 +204,7 @@ function ChatPage() {
         
         // Update the placeholder message with the final voice message and bind to Hume chat id
         setConversations(prev => {
-          const chatId = (response.chatId as string | undefined) || localStorage.getItem('hume_chat_id') || undefined;
+          const chatId = (response.chatId as string | undefined) || localStorage.getItem('hume_chat_group_id') || undefined;
           return prev.map(c => {
             if (c.id !== currentConversationId) return c;
             
@@ -200,23 +233,10 @@ function ChatPage() {
               messages: [...updatedMessages, agentMsg],
               updatedAt: new Date(),
               title: c.title === 'New Conversation' ? 'Voice message' : c.title,
-              humeChatId: c.humeChatId || chatId,
+              humeChatGroupId: c.humeChatGroupId || chatId,
             };
           });
         });
-        // Upsert stored chat name from the earliest user message as friendly name
-        try {
-          const chatId = (response.chatId as string | undefined) || localStorage.getItem('hume_chat_id') || undefined;
-          if (chatId) {
-            const conv = conversations.find(c => c.id === currentConversationId);
-            const firstUser = conv?.messages.find(m => m.role === 'user');
-            const name = (firstUser?.text || 'Voice chat').slice(0, 40);
-            const groupId = localStorage.getItem('hume_chat_group_id') || undefined;
-            upsertStoredChat(chatId, name, groupId);
-            setSidebarRefresh(v => v + 1);
-          }
-        } catch {}
-        console.log(response);
       } catch (error) {
         console.error('Error processing voice message:', error);
         // Update the placeholder with an error message
@@ -279,11 +299,15 @@ function ChatPage() {
           }));
         
   
-          console.log("conversationHistory",  conversation.humeChatId);
+          console.log("conversationHistory",  conversation.humeChatGroupId);
         // Get response from Hume
-        const response = await sendMessageToHume(conversationHistory, currentConversationId, conversation.humeChatId);
+        const response = await sendMessageToHume(conversationHistory, currentConversationId, conversation.humeChatGroupId);
         
   
+        const chatId = (response.chatGroupId as string | undefined) || localStorage.getItem("hume_chat_group_id") || undefined;
+        if (chatId) {
+          localStorage.setItem("hume_chat_group_id", chatId);
+        }
         console.log("response", response);
         const agentMsg: Message = { 
           id: crypto.randomUUID(), 
@@ -294,7 +318,7 @@ function ChatPage() {
         
         // Update conversation with AI response and bind to Hume chat id
         setConversations(prev => {
-          const chatId = (response.chatId as string | undefined) || localStorage.getItem('hume_chat_id') || undefined;
+          const chatId = (response.chatId as string | undefined) || localStorage.getItem('hume_chat_group_id') || undefined;
           return prev.map(c => c.id === currentConversationId 
             ? { 
                 ...c, 
@@ -303,23 +327,11 @@ function ChatPage() {
                   ? text.substring(0, 30) + (text.length > 30 ? '...' : '')
                   : c.title,
                 updatedAt: new Date(),
-                humeChatId: c.humeChatId || chatId,
+                humeChatGroupId: chatId,
               } 
             : c
           );
         });
-        // Upsert stored chat name (prefer first user message)
-        try {
-          const chatId = (response.chatId as string | undefined) || localStorage.getItem('hume_chat_id') || undefined;
-          if (chatId) {
-            const conv = conversations.find(c => c.id === currentConversationId);
-            const firstUser = conv?.messages.find(m => m.role === 'user');
-            const friendly = (firstUser?.text || text).slice(0, 40);
-            const groupId = localStorage.getItem('hume_chat_group_id') || undefined;
-            upsertStoredChat(chatId, friendly, groupId);
-            setSidebarRefresh(v => v + 1);
-          }
-        } catch {}
       } catch (error) {
         console.error('Error getting response from Hume:', error);
         const errorMsg: Message = { 
@@ -356,163 +368,89 @@ function ChatPage() {
       
       setConversations(prev => [newConversation, ...prev]);
       setCurrentConversationId(newConversation.id);
-      // Refresh chats list so sidebar stays current
-      (async () => { try { await syncChatsIntoLocalStorage(20); } catch {} })();
     }, []);
   
-    const loadFromHume = useCallback(async (explicitChatId?: string) => {
-      console.log("loadFromHume");
+    const loadFromHume = useCallback(async (groupId: string) => {
+      console.log("[Hume] loadFromHume start for group:", groupId);
+    
       try {
-        let chatId = explicitChatId || localStorage.getItem('hume_chat_id');
-        if (explicitChatId) {
-          try {
-            const raw = localStorage.getItem('hume_chats');
-            const list: Array<{ chat_id: string; chat_group_id?: string }> = raw ? JSON.parse(raw) : [];
-            const found = list.find((c) => c.chat_id === explicitChatId);
-            if (found) {
-              localStorage.setItem('hume_chat_id', found.chat_id);
-              if (found.chat_group_id) localStorage.setItem('hume_chat_group_id', found.chat_group_id);
-            }
-          } catch {}
+        // 1. Fetch conversation history by groupId
+        let mappedMessages: Message[] = [];
+        console.log("[Hume] Fetching group history:", groupId);
+        const conv = await fetchConversationByGroup(groupId);
+
+        console.log("dklajlaskd;ajlkdf", conv);
+    
+        if (Array.isArray(conv) && conv.length > 0) {
+          mappedMessages = conv.map((e: any) => ({
+            id: e.id || crypto.randomUUID(),
+            role: e.role === "USER" ? "user" : "agent", // FIX HERE
+            text: e.content || e.text || "",
+            timestamp: new Date(e.timestamp || Date.now()),
+          }));
         }
-        if (!chatId) {
-          // no prompt; rely on stored IDs list
-          const listRaw = localStorage.getItem('hume_chats');
-          const list: Array<{chat_id: string}> = listRaw ? JSON.parse(listRaw) : [];
-          if (list.length === 0) return;
-          chatId = list[0].chat_id; // most recent
-          // also ensure group id is aligned with the most recent
-          try {
-            const listFull: Array<{ chat_id: string; chat_group_id?: string }> = listRaw ? JSON.parse(listRaw) : [];
-            const found = listFull.find((c) => c.chat_id === chatId);
-            if (found) {
-              localStorage.setItem('hume_chat_id', found.chat_id);
-              if (found.chat_group_id) localStorage.setItem('hume_chat_group_id', found.chat_group_id);
-            }
-          } catch {}
-        }
-        if (!chatId) {
-          console.warn('No hume_chat_id found in localStorage. Start a Hume chat first.');
+        
+    
+        if (!mappedMessages || mappedMessages.length === 0) {
+          console.warn("[Hume] No history found for group:", groupId);
           return;
         }
-        console.log("chatId", chatId)
-        // Fetch paginated events per Hume docs and map to UI messages
-        const events = await fetchChatEvents(chatId, { page_size: 100, max_pages: 10, ascending_order: true });
-        // console.log("events", JSON.stringify(events));
-        let mappedMessages = mapEventsToMessages(events) as Message[];
-  
-        // If we only got system events (i.e., mappedMessages is empty), try falling back to Chat Group history
-        if (!Array.isArray(mappedMessages) || mappedMessages.length === 0) {
-          try {
-            const raw = localStorage.getItem('hume_chats');
-            const list: Array<{ chat_id: string; chat_group_id?: string }> = raw ? JSON.parse(raw) : [];
-            const found = list.find((c) => c.chat_id === chatId);
-            let groupId = found?.chat_group_id || localStorage.getItem('hume_chat_group_id') || undefined;
-            // If group id is unknown, fetch metadata via SDK
-            if (!groupId) {
-              try {
-                const meta = await getChatMetadata(chatId);
-                if (meta?.chat_group_id) {
-                  groupId = meta.chat_group_id;
-                  localStorage.setItem('hume_chat_group_id', groupId);
-                }
-              } catch {}
-            }
-            if (groupId) {
-              const conv = await getConversationHistory(groupId);
-              if (Array.isArray(conv) && conv.length > 0) {
-                mappedMessages = conv as unknown as Message[];
-              }
-            }
-          } catch (e) {
-            console.warn('Fallback to chat group history failed', e);
-          }
-        }
-  
-        if (!Array.isArray(mappedMessages) || mappedMessages.length === 0) {
-          console.warn('No Hume events found for chat:', chatId);
-          return;
-        }
-  
-        // Upsert a friendly chat name from events and refresh sidebar
+    
+        // 2. Persist friendly name + refresh sidebar
         try {
-          // Try to get a group id
-          let groupId: string | undefined = localStorage.getItem('hume_chat_group_id') || undefined;
-          if (!groupId) {
-            const meta = await getChatMetadata(chatId);
-            if (meta?.chat_group_id) {
-              groupId = meta.chat_group_id;
-              localStorage.setItem('hume_chat_group_id', groupId);
-            }
-          }
-          const friendly = deriveChatNameFromEvents(events as any, chatId);
-          upsertStoredChat(chatId, friendly, groupId);
-          setSidebarRefresh(v => v + 1);
-        } catch {}
-  
-        // Merge into an existing conversation when possible
+          setSidebarRefresh((v) => v + 1);
+        } catch (e) {
+          console.warn("[Hume] Could not upsert stored chat", e);
+        }
+    
+        // 3. Merge into conversation state
         let targetConversationId: string | null = null;
-        setConversations(prev => {
-          // If user clicked a specific History item, prefer a conv bound to that humeChatId
-          const targetConv = explicitChatId
-            ? prev.find(c => c.humeChatId === chatId) || prev.find(c => c.id === `hume-${chatId}`)
-            : prev.find(c => c.id === currentConversationId);
-  
+        setConversations((prev) => {
+          const targetConv =
+            prev.find((c) => c.humeChatGroupId === groupId) ||
+            prev.find((c) => c.id === `hume-${groupId}`);
+    
           if (targetConv) {
             const merged: Conversation = {
               ...targetConv,
-              humeChatId: chatId,
-              title: targetConv.title === 'New Conversation' ? `Hume chat ${chatId.substring(0,6)}...` : targetConv.title,
+              humeChatGroupId: groupId,
+              title:
+                targetConv.title === "New Conversation"
+                  ? `Hume chat ${groupId.substring(0, 6)}...`
+                  : targetConv.title,
               messages: mappedMessages,
               createdAt: mappedMessages[0]?.timestamp ?? targetConv.createdAt,
               updatedAt: mappedMessages[mappedMessages.length - 1]?.timestamp ?? new Date(),
             };
             targetConversationId = targetConv.id;
-            return prev.map(c => c.id === targetConv.id ? merged : c);
+            return prev.map((c) => (c.id === targetConv.id ? merged : c));
           } else {
-            // Create a new conversation only when restoring explicitly and none exists
             const newConv: Conversation = {
-              id: `hume-${chatId}`,
-              title: `Hume chat ${chatId.substring(0, 6)}...`,
+              id: `hume-${groupId}`,
+              title: `Hume chat ${groupId.substring(0, 6)}...`,
               messages: mappedMessages,
               createdAt: mappedMessages[0]?.timestamp ?? new Date(),
               updatedAt: mappedMessages[mappedMessages.length - 1]?.timestamp ?? new Date(),
-              humeChatId: chatId,
+              humeChatGroupId: groupId,
             };
             targetConversationId = newConv.id;
             return [newConv, ...prev];
           }
         });
-        // Only switch focus when user explicitly chose a chat from History
-        if (explicitChatId) {
-          // Use the id determined during the state update
-          setCurrentConversationId((prevId) => (targetConversationId ?? prevId));
-        }
+    
+        // 4. Set as active conversation
+        setCurrentConversationId((prevId) => targetConversationId ?? prevId);
       } catch (e) {
-        console.error('Failed to restore from Hume:', e);
+        console.error("[Hume] Failed to restore group:", e);
       }
     }, []);
+    
+    
   
     const [detached, setDetached] = useState<Record<string, { id: string; x: number; y: number }>>({})
     const [resetSignal, setResetSignal] = useState<number>(0)
     const [isMinimized, setIsMinimized] = useState<boolean>(false)
     const messagesEndRef = useRef<HTMLDivElement>(null)
-    const toogledynamicVariable = async () => {
-      console.log("toogledynamicVariable")
-      setTimeout(async () =>{
-        await setDynamicVariable("Alex", "Hitman")
-      }, 1000)
-    }
-  
-    
-    useEffect(() => {
-      // Only run this once when component mounts
-      const timer = setTimeout(() => {
-        toogledynamicVariable();
-      }, 1000);
-      
-      return () => clearTimeout(timer);
-    }, [toogledynamicVariable]);
   
     const containerVariants = {
       minimized: {
@@ -561,13 +499,7 @@ function ChatPage() {
   
     // Local state to trigger re-render of sidebar list after refresh
     const [sidebarRefresh, setSidebarRefresh] = useState(0);
-  
-    // Auto-sync the chats list on mount so sidebar isn't empty on first open
-    useEffect(() => {
-      (async () => {
-        try { await syncChatsIntoLocalStorage(20); } catch {}
-      })();
-    }, []);
+
 
   return (
         <div className="app-container">
@@ -630,47 +562,6 @@ function ChatPage() {
                     title="Download"
                   >
                     <span>Download</span>
-                  </button>
-      
-                  {/* Resume */}
-                  <button
-                    onClick={async (e) => {
-                      e.stopPropagation();
-                      try {
-                        const current = conversations.find(
-                          (c) => c.id === currentConversationId
-                        );
-                        const chatId =
-                          current?.humeChatId ||
-                          localStorage.getItem("hume_chat_id") ||
-                          undefined;
-                        if (!chatId) {
-                          console.warn("No Hume chat to resume. Start a chat first.");
-                          return;
-                        }
-                        await resumeChat(chatId, currentConversationId || "default");
-                        console.info("Resumed Hume chat", chatId);
-                        await loadFromHume(chatId);
-                      } catch (err) {
-                        console.error("Failed to resume chat", err);
-                      }
-                    }}
-                    style={{
-                      background: "rgba(255, 255, 255, 0.2)",
-                      border: "none",
-                      color: "white",
-                      borderRadius: "6px",
-                      width: "100px",
-                      height: "32px",
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      cursor: "pointer",
-                      transition: "background 0.2s ease",
-                    }}
-                    title="Resume last chat session"
-                  >
-                    <span>Resume</span>
                   </button>
       
                   {/* Title */}
@@ -1000,57 +891,49 @@ function ChatPage() {
       
                   {/* Stored Conversations */}
                   <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-                    {(() => {
-                      const list = listStoredChats(50);
-                      return list.map((h) => {
-                        const convId = `hume-${h.chat_id}`;
-                        const isActive = currentConversationId === convId;
-                        return (
+                    {chatGroups.map((h, index) => {
+                      const convId = `hume-${h.id}`;
+                      const isActive = currentConversationId === convId;
+
+                      return (
+                        <div
+                          key={`chat-${h.id}-${index}`}
+                          onClick={() => loadFromHume(h.id)} // use group ID
+                          style={{
+                            padding: "10px 12px 10px 10px",
+                            marginRight: "30px",
+                            borderRadius: "6px",
+                            background: isActive ? "#212121" : "#212121",
+                            cursor: "pointer",
+                            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                            transform: "translateY(-2px)",
+                            transition: "all 0.3s cubic-bezier(0.4, 0, 0.2, 1)",
+                          }}
+                        >
                           <div
-                            key={h.chat_id}
-                            onClick={() => {
-                              loadFromHume(h.chat_id);
-                            }}
                             style={{
-                              padding: "10px 12px 10px 10px",
-                              marginRight: '30px',
-                              borderRadius: "6px",
-                              background: isActive ? "#212121" : "#212121",
-                              // border: `1px solid ${
-                              //   isActive ? "white" : "white"
-                              // }`,
-                              cursor: "pointer",
-                              // transition: "all 0.2s ease",
-                              boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-                              transform:  'translateY(-2px)',
-                              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
+                              fontSize: "0.9rem",
+                              fontWeight: 500,
+                              marginBottom: "4px",
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              color: "white",
                             }}
                           >
-                            <div
-                              style={{
-                                fontSize: "0.9rem",
-                                fontWeight: 500,
-                                marginBottom: "4px",
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                                color: "white",
-                              }}
-                            >
-                              {h.name || `Hume chat ${(h.chat_id ?? "").substring(0, 6)}...`}
-                            </div>
-                            <div
-                              style={{
-                                fontSize: "0.7rem",
-                                color: "#6c757d",
-                              }}
-                            >
-                              {new Date(h.updated_at ?? Date.now()).toLocaleString()}
-                            </div>
+                            {`Chat ${h.id.substring(0, 6)}...`}
                           </div>
-                        );
-                      });
-                    })()}
+                          <div
+                            style={{
+                              fontSize: "0.7rem",
+                              color: "#6c757d",
+                            }}
+                          >
+                            {new Date(h.startTimestamp).toLocaleString()}
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 </div>
               </div>
